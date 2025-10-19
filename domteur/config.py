@@ -1,13 +1,16 @@
 import json
 from pathlib import Path
-from typing import Annotated, ClassVar
+from typing import Annotated, ClassVar, Literal
 
 import typer
 import yaml
 from pydantic import (
+    BaseModel,
+    Discriminator,
     Field,
     PrivateAttr,
     SecretStr,
+    Tag,
 )
 from pydantic.functional_validators import AfterValidator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -57,9 +60,63 @@ class SecretsSettings(BaseSettings):
 StrOrPath = Annotated[Path, AfterValidator(string_or_path)]
 
 
+class OllamaProvider(BaseModel):
+    """Ollama LLM provider configuration."""
+
+    type: Literal["ollama"]
+    base_url: str = "http://localhost:11434"
+    model: str = "llama2"
+
+
+class OpenRouterProvider(BaseModel):
+    """OpenRouter LLM provider configuration."""
+
+    type: Literal["openrouter"]
+    api_key: SecretStr
+    model: str = "anthropic/claude-3-haiku"
+    base_url: str = "https://openrouter.ai/api/v1"
+
+
+def get_provider_type(v):
+    """Discriminator function for LLM provider types."""
+    if isinstance(v, dict):
+        return v.get("type")
+    return getattr(v, "type", None)
+
+
+LLMProvider = Annotated[
+    Annotated[OllamaProvider, Tag("ollama")] | Annotated[OpenRouterProvider, Tag("openrouter")],
+    Discriminator(get_provider_type),
+]
+
+
+class DatabaseConfig(BaseModel):
+    """Database configuration."""
+
+    type: Literal["sqlite"] = "sqlite"
+    path: str = "./domteur.db"
+
+
+class TTSConfig(BaseModel):
+    """Text-to-speech configuration."""
+
+    engine: str = "system"
+
+
 class Settings(SecretsSettings):
     version: str = __version__
     config_format: ClassVar[str] = "yaml"
+
+    # LLM providers configuration
+    llm_providers: list[LLMProvider] = Field(
+        default_factory=lambda: [LLMProvider(type="ollama", model="llama2")]
+    )
+
+    # Database configuration
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+
+    # TTS configuration
+    tts: TTSConfig = Field(default_factory=TTSConfig)
 
     # not serialized
     file_path: StrOrPath | None = Field(

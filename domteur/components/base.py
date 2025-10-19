@@ -96,7 +96,6 @@ class Component(ABC):
                 self._tasks.append(task)
             delattr(self, "_pending_tasks")
 
-    @abstractmethod
     async def _cleanup(self) -> None:
         """Override this method for component-specific cleanup."""
         pass

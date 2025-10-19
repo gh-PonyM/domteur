@@ -8,9 +8,13 @@ from pydantic import ValidationError
 from rich import print
 
 from domteur import __version__
+from domteur.cli.chat import chat_cli
 from domteur.config import APP_CFG, CONFIG_FN, ENV_CONFIG_KEY, Settings
 
 cli = typer.Typer(pretty_exceptions_show_locals=False)
+
+# Register chat commands
+cli.add_typer(chat_cli, name="chat")
 
 
 log_levels = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO, 3: logging.DEBUG}

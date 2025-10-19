@@ -1,0 +1,28 @@
+version: "0.1.0"
+
+# LLM Provider Configuration
+llm_providers:
+  # Local Ollama instance
+  - type: "ollama"
+    base_url: "http://localhost:11434"
+    model: "llama2"
+  
+  # Alternative Ollama models
+  # - type: "ollama"
+  #   base_url: "http://localhost:11434" 
+  #   model: "mistral"
+  
+  # OpenRouter cloud provider
+  # - type: "openrouter"
+  #   api_key: "sk-or-v1-xxxxx"  # Set via environment variable OPENROUTER_API_KEY
+  #   model: "anthropic/claude-3-haiku"
+  #   base_url: "https://openrouter.ai/api/v1"
+
+# Database Configuration  
+database:
+  type: "sqlite"
+  path: "./domteur.db"
+
+# Text-to-Speech Configuration
+tts:
+  engine: "system"  # Options: system, elevenlabs, etc.
