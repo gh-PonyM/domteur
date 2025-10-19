@@ -43,7 +43,7 @@ def ensure_config(ctx, option, cfg_file):
         print(f"Creating empty config {path}")
         cfg = Settings()
         cfg.prompt_initial_config()
-        path.write_text(cfg.to_json())
+        path.write_text(cfg.dump())
     try:
         cfg = Settings.from_file(path)
     except ValidationError:
@@ -77,7 +77,7 @@ def main(
 def open_config(ctx: typer.Context):
     """Open the place where the config is stored"""
     cfg = ctx.meta["cfg"]
-    print(f"Open config path: {cfg.file_path.parent}")
+    print(f"Opening config {cfg.file_path}")
     typer.launch(str(cfg.file_path.resolve()), locate=True)
 
 

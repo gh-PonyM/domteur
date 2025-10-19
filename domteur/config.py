@@ -74,7 +74,7 @@ class Settings(SecretsSettings):
         )
 
     def dump(self):
-        return getattr(self, f"to_{self.config_format}")
+        return getattr(self, f"to_{self.config_format}")()
 
     def save(self, config_path: None | Path = None):
         """Save the current configuration. Secrets should be excluded as ony **** is dumped"""
