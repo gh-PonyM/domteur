@@ -4,7 +4,11 @@ from typing import Annotated, ClassVar
 
 import typer
 import yaml
-from pydantic import Field, PrivateAttr, SecretStr, ValidationError
+from pydantic import (
+    Field,
+    PrivateAttr,
+    SecretStr,
+)
 from pydantic.functional_validators import AfterValidator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -100,14 +104,3 @@ class Settings(SecretsSettings):
         if "file_path" in cls.model_fields:
             data["file_path"] = str(file_path)
         return cls.model_validate(data)
-
-
-def get_settings(env_file: Path | None = None) -> Settings:
-    """Retrieves settings from an env file if it exists on disk, otherwise solely
-    rely on environment variables. If a file is present, env vars still overwrite values in the env file."""
-    if env_file and not env_file.is_file():
-        env_file = None
-    try:
-        return Settings(_env_file=env_file)
-    except ValidationError:
-        raise
