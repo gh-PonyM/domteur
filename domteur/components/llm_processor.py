@@ -8,7 +8,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from domteur.components.base import Component
 from domteur.config import OllamaProvider, Settings
-from domteur.events import Event, EventType, Topics
+from domteur.events import Event, EventBusInterface, EventType, Topics
 
 logger = logging.getLogger(__name__)
 
@@ -160,8 +160,10 @@ class LLMProcessor(Component):
             return False
 
 
-async def create_llm_processor(settings: Settings) -> LLMProcessor:
+async def create_llm_processor(
+    settings: Settings, event_bus: EventBusInterface | None = None
+) -> LLMProcessor:
     """Factory function to create and start an LLM processor component."""
-    processor = LLMProcessor(settings)
+    processor = LLMProcessor(settings, event_bus=event_bus)
     await processor.start()
     return processor

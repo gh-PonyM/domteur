@@ -85,7 +85,8 @@ def get_provider_type(v):
 
 
 LLMProvider = Annotated[
-    Annotated[OllamaProvider, Tag("ollama")] | Annotated[OpenRouterProvider, Tag("openrouter")],
+    Annotated[OllamaProvider, Tag("ollama")]
+    | Annotated[OpenRouterProvider, Tag("openrouter")],
     Discriminator(get_provider_type),
 ]
 
