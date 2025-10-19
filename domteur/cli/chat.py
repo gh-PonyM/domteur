@@ -75,7 +75,9 @@ def start(ctx: typer.Context):
             except Exception as e:
                 print(f"⚠️ Error during cleanup: {e}")
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    # loop = asyncio.get_event_loop()
     loop.add_signal_handler(signal.SIGINT, ask_exit)
     loop.add_signal_handler(signal.SIGTERM, ask_exit)
 
