@@ -2,9 +2,8 @@
 
 import logging
 
-from langchain_community.llms import Ollama
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_ollama import OllamaLLM
 
 from domteur.components.base import Component
 from domteur.config import OllamaProvider, Settings
@@ -29,7 +28,7 @@ class LLMProcessor(Component):
             try:
                 if isinstance(provider_config, OllamaProvider):
                     # Initialize Ollama provider
-                    llm = Ollama(
+                    llm = OllamaLLM(
                         model=provider_config.model, base_url=provider_config.base_url
                     )
                     self.llm_providers[provider_config.model] = llm
