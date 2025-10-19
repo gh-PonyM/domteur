@@ -29,7 +29,7 @@ dev-dependencies = [
     "pytest>=7.2.1",
     "licensecheck>=2023.0.1",
     "bumpversion>=0.6.0",
-    
+    "pytest-asyncio>=1.2.0",
 ]
 
 [tool.pytest.ini_options]
