@@ -20,6 +20,7 @@ dependencies = [
     "langchain>=1.0.0",
     "langchain-community>=0.4",
     "langchain-ollama>=1.0.0",
+    "prompt-toolkit>=3.0.52",
 ]
 
 [project.scripts]
