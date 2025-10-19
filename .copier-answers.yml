@@ -1,0 +1,27 @@
+_src_path: /home/pony_m/Repos/copiers/typer-cli
+cli_config_type: yaml
+docker_app_dir: /app
+docker_dev_command: uv run domteur --version
+docker_dev_uid: '1000'
+docker_image_flavour: bullseye
+entrypoint_name: domteur
+git_host: gitlab.com
+git_username: pony_m
+init_git: false
+license: MIT license
+lint_cmd: uv run ruff check
+post_docker_build: false
+project_description: event driven assistant
+project_name: domteur
+project_slug: domteur
+python_line_length: '88'
+python_version: '3.12'
+test_cmd: uv run pytest
+use_bumpversion: true
+use_docker: true
+use_mypy: false
+use_pre_commit: false
+use_ruff: true
+user_email: dev@lksch.ch
+user_name: PonyM
+version: 0.1.0
