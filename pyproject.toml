@@ -16,6 +16,8 @@ dependencies = [
     "pydantic[all]>=2.3.0",
     "pydantic-settings>=2.0.3",
     "pyyaml>=6.0.1",
+    "langgraph>=1.0.0",
+    "langchain>=1.0.0",
 ]
 
 [project.scripts]
