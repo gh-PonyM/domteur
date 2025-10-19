@@ -13,7 +13,15 @@ Install the command line tool using git repo:
 
     domteur --version
 
+## Docker
 
+Build the dev image:
+
+     docker build --target development -t domteur:dev .
+
+And run the image:
+
+    docker run -it --rm domteur:dev domteur --help
 
 ## Features
 
