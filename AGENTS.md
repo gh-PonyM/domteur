@@ -10,7 +10,7 @@ Event-driven AI assistant with:
 - **Local Persistence**: SQLite for chat history and state
 
 ## Component Names
-- `interactive_llm_input`: CLI REPL for user input
+- `repl`: CLI REPL for user input
 - `llm_processor`: Handles LLM requests/responses (uses LangChain/LangGraph)
 - `text_to_speech_engine`: TTS message sink
 - `event_dispatcher`: Central message routing
@@ -20,8 +20,8 @@ Event-driven AI assistant with:
 ## Event Architecture
 ```
 ┌─────────────────┐    JSON Messages    ┌──────────────────┐
-│ interactive_    │ ──────────────────> │ event_dispatcher │
-│ llm_input       │                     │                  │
+│ repl            │ ──────────────────> │ event_dispatcher │
+│                 │                     │                  │
 └─────────────────┘                     └──────────────────┘
                                                  │
                    ┌─────────────────────────────┼─────────────────────────────┐
