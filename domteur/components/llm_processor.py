@@ -59,6 +59,8 @@ class LLMProcessor(Component):
             return
 
         user_message = event.payload.get("content", "")
+        conversation_history = event.payload.get("conversation_history", [])
+
         if not user_message:
             logger.warning("Received empty user message")
             return
@@ -76,23 +78,33 @@ class LLMProcessor(Component):
 
             llm = self.llm_providers[self.current_provider]
 
-            # Create chat prompt
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    SystemMessage(
-                        content="You are a helpful AI assistant. Provide concise and helpful responses."
-                    ),
-                    HumanMessage(content=user_message),
-                ]
-            )
+            # Build conversation prompt with history
+            messages = [
+                SystemMessage(
+                    content="You are a helpful AI assistant. Provide concise and helpful responses."
+                )
+            ]
+
+            # Add conversation history
+            for msg in conversation_history[
+                :-1
+            ]:  # Exclude the current message as it's already the last one
+                if msg["role"] == "user":
+                    messages.append(HumanMessage(content=msg["content"]))
+                elif msg["role"] == "assistant":
+                    from langchain_core.messages import AIMessage
+
+                    messages.append(AIMessage(content=msg["content"]))
+
+            # Create the full conversation context
+            conversation_text = self._build_conversation_context(conversation_history)
 
             logger.info(
-                f"Processing message with {self.current_provider}: {user_message[:50]}..."
+                f"Processing message with {self.current_provider} (history: {len(conversation_history)} messages): {user_message[:50]}..."
             )
 
-            # Generate response using LangChain
-            formatted_prompt = prompt.format_messages(human_input=user_message)
-            response = await self._generate_response(llm, formatted_prompt[-1].content)
+            # Generate response using conversation context
+            response = await self._generate_response(llm, conversation_text)
 
             # Create and publish LLM response event
             response_event = Event(
@@ -113,6 +125,24 @@ class LLMProcessor(Component):
             await self._send_error_response(
                 event.session_id, f"LLM processing error: {str(e)}"
             )
+
+    def _build_conversation_context(self, conversation_history: list[dict]) -> str:
+        """Build conversation context string from history."""
+        if not conversation_history:
+            return (
+                "You are a helpful AI assistant. Provide concise and helpful responses."
+            )
+
+        context = "You are a helpful AI assistant. Here is our conversation so far:\n\n"
+
+        for msg in conversation_history:
+            if msg["role"] == "user":
+                context += f"Human: {msg['content']}\n"
+            elif msg["role"] == "assistant":
+                context += f"Assistant: {msg['content']}\n"
+
+        context += "\nPlease respond to the human's latest message above."
+        return context
 
     async def _generate_response(self, llm, message: str) -> str:
         """Generate response using the LLM."""
