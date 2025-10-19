@@ -1,13 +1,15 @@
-import typer
 import json
-import yaml
+import typing as t
 from pathlib import Path
+
+import typer
+import yaml
+from pydantic import Field, PrivateAttr, SecretStr, ValidationError
+from pydantic.functional_validators import AfterValidator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 from domteur import __version__
 from domteur.validators import string_or_path
-from pydantic import PrivateAttr, ValidationError, SecretStr, Field
-import typing as t
-from pydantic_settings import SettingsConfigDict, BaseSettings
-from pydantic.functional_validators import AfterValidator
 
 APP_NAME = "domteur"
 ENV_CONFIG_KEY = "DOMTEUR_CONFIG_DIR"
@@ -29,7 +31,11 @@ class SecretsSettings(BaseSettings):
 
     def __init__(self, **data):
         super().__init__(**data)
-        self._client = ExampleClient(secret=self.SECRET_KEY.get_secret_value()) if self.SECRET_KEY else None
+        self._client = (
+            ExampleClient(secret=self.SECRET_KEY.get_secret_value())
+            if self.SECRET_KEY
+            else None
+        )
 
     @property
     def client(self) -> ExampleClient | None:
@@ -37,9 +43,11 @@ class SecretsSettings(BaseSettings):
 
     # TODO[pydantic]: The following keys were removed: `json_encoders`.
     # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-config for more information.
-    model_config = SettingsConfigDict(json_encoders={
-        SecretStr: lambda v: v.get_secret_value() if v else None,
-    })
+    model_config = SettingsConfigDict(
+        json_encoders={
+            SecretStr: lambda v: v.get_secret_value() if v else None,
+        }
+    )
 
 
 StrOrPath = t.Annotated[Path, AfterValidator(string_or_path)]
@@ -51,14 +59,19 @@ class Settings(SecretsSettings):
 
     # not serialized
     file_path: StrOrPath | None = Field(
-        description='File path where this is stored', default=None
+        description="File path where this is stored", default=None
     )
 
     def to_json(self) -> str:
-        return json.dumps(self.model_dump(mode="json", exclude_none=True, exclude={'file_path'}), indent=2)
+        return json.dumps(
+            self.model_dump(mode="json", exclude_none=True, exclude={"file_path"}),
+            indent=2,
+        )
 
     def to_yaml(self):
-        return yaml.safe_dump(self.model_dump(mode="json", exclude_none=True, exclude={'file_path'}))
+        return yaml.safe_dump(
+            self.model_dump(mode="json", exclude_none=True, exclude={"file_path"})
+        )
 
     def dump(self):
         return getattr(self, f"to_{self.config_format}")
@@ -72,22 +85,24 @@ class Settings(SecretsSettings):
 
     def __bool__(self):
         """A config with only the version and filepath set is considered falsy"""
-        return bool(self.model_dump(exclude_none=True, exclude={'file_path', "version"}))
+        return bool(
+            self.model_dump(exclude_none=True, exclude={"file_path", "version"})
+        )
 
     def prompt_initial_config(self):
         """Function used when the cli is run initially without a config"""
         pass
 
     @classmethod
-    def from_file(cls, file_path: t.Union[Path, str]):
+    def from_file(cls, file_path: Path | str):
         file_path = Path(file_path) if isinstance(file_path, str) else file_path
         data = yaml.safe_load(file_path.read_text())
-        if 'file_path' in cls.model_fields:
-            data['file_path'] = str(file_path)
+        if "file_path" in cls.model_fields:
+            data["file_path"] = str(file_path)
         return cls.model_validate(data)
 
 
-def get_settings(env_file: t.Optional[Path] = None) -> Settings:
+def get_settings(env_file: Path | None = None) -> Settings:
     """Retrieves settings from an env file if it exists on disk, otherwise solely
     rely on environment variables. If a file is present, env vars still overwrite values in the env file."""
     if env_file and not env_file.is_file():

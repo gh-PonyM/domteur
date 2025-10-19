@@ -1,13 +1,14 @@
+import logging
+import typing as t
 from os import environ
+from pathlib import Path
 
 import typer
-from pathlib import Path
-from rich import print
 from pydantic import ValidationError
+from rich import print
+
 from domteur import __version__
-from domteur.config import Settings, APP_CFG, ENV_CONFIG_KEY, CONFIG_FN
-import typing as t
-import logging
+from domteur.config import APP_CFG, CONFIG_FN, ENV_CONFIG_KEY, Settings
 
 cli = typer.Typer(pretty_exceptions_show_locals=False)
 
@@ -36,10 +37,10 @@ def ensure_config(ctx, option, cfg_file):
     if not path.parent.is_dir():
         if not cfg_file == APP_CFG:
             error(f"{path.parent} does not exist")
-        print(f'Creating app config folder {path.parent}')
+        print(f"Creating app config folder {path.parent}")
         path.parent.mkdir()
     if not path.is_file():
-        print(f'Creating empty config {path}')
+        print(f"Creating empty config {path}")
         cfg = Settings()
         cfg.prompt_initial_config()
         path.write_text(cfg.to_json())
@@ -60,7 +61,7 @@ def ensure_config(ctx, option, cfg_file):
 @cli.callback(invoke_without_command=False)
 def main(
     ctx: typer.Context,
-    version: t.Optional[bool] = typer.Option(None, "--version", callback=version_info),
+    version: bool | None = typer.Option(None, "--version", callback=version_info),
     cfg_file: Path = typer.Option(APP_CFG, callback=ensure_config),
     verbose: t.Annotated[
         int, typer.Option("--verbose", "-v", count=True, max=3, min=0)
@@ -85,6 +86,7 @@ def show_config(ctx: typer.Context):
     """Open the place where the config is stored"""
     cfg = ctx.meta["cfg"]
     from rich import print
+
     print(cfg.dump())
 
 

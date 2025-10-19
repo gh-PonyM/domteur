@@ -6,5 +6,5 @@ def string_or_path(pathlike) -> Path | None:
         return pathlike
     if isinstance(pathlike, str):
         return Path(pathlike)
-    assert isinstance(pathlike, Path), f'{pathlike} is not a path'
+    assert isinstance(pathlike, Path), f"{pathlike} is not a path"
     return pathlike
