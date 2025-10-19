@@ -1,6 +1,6 @@
 import json
-import typing as t
 from pathlib import Path
+from typing import Annotated, ClassVar
 
 import typer
 import yaml
@@ -50,12 +50,12 @@ class SecretsSettings(BaseSettings):
     )
 
 
-StrOrPath = t.Annotated[Path, AfterValidator(string_or_path)]
+StrOrPath = Annotated[Path, AfterValidator(string_or_path)]
 
 
 class Settings(SecretsSettings):
     version: str = __version__
-    config_format: t.ClassVar[str] = "yaml"
+    config_format: ClassVar[str] = "yaml"
 
     # not serialized
     file_path: StrOrPath | None = Field(

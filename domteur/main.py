@@ -1,7 +1,7 @@
 import logging
-import typing as t
 from os import environ
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from pydantic import ValidationError
@@ -63,7 +63,7 @@ def main(
     ctx: typer.Context,
     version: bool | None = typer.Option(None, "--version", callback=version_info),
     cfg_file: Path = typer.Option(APP_CFG, callback=ensure_config),
-    verbose: t.Annotated[
+    verbose: Annotated[
         int, typer.Option("--verbose", "-v", count=True, max=3, min=0)
     ] = 0,
 ):
