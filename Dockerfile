@@ -1,4 +1,4 @@
-ARG PYTHON_VERSION=3.14
+ARG PYTHON_VERSION=3.12
 ARG IMAGE_FLAVOR=slim-bookworm
 FROM python:$PYTHON_VERSION-$IMAGE_FLAVOR AS python-base
 ENV APP_HOME=/app
@@ -11,10 +11,11 @@ RUN mkdir -p $APP_HOME \
     && chmod -R 770 /home/dev \
     && apt-get update && apt-get upgrade -y \
     && apt-get install --no-install-recommends -y \
-    git \
+    git build-essential gcc portaudio19-dev \
     && git config --system init.defaultBranch main \
     # https://github.blog/2022-04-18-highlights-from-git-2-36/#stricter-repository-ownership-checks
-    && git config --global safe.directory '*'
+    && git config --global safe.directory '*' \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/app/.venv/bin:$PATH"
 

@@ -8,19 +8,19 @@ from pydantic import (
     BaseModel,
     Discriminator,
     Field,
-    PrivateAttr,
     SecretStr,
     Tag,
 )
 from pydantic.functional_validators import AfterValidator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings as DefaultBaseSettings, SettingsConfigDict
 
 from domteur import __version__
+from domteur.components.tts.piper import PiperTTSConfig
 from domteur.validators import string_or_path
 
 APP_NAME = "domteur"
 ENV_CONFIG_KEY = "DOMTEUR_CONFIG_DIR"
-CONFIG_FN = "config.yaml"
+CONFIG_FN = "config.yml"
 APP_DIR = Path(typer.get_app_dir(APP_NAME))
 APP_CFG = APP_DIR / CONFIG_FN
 
@@ -30,31 +30,8 @@ class ExampleClient:
         self.secret = secret
 
 
-class SecretsSettings(BaseSettings):
-    """Some settings for your cli"""
-
-    SECRET_KEY: SecretStr | None = None
-    _client: ExampleClient | None = PrivateAttr()
-
-    def __init__(self, **data):
-        super().__init__(**data)
-        self._client = (
-            ExampleClient(secret=self.SECRET_KEY.get_secret_value())
-            if self.SECRET_KEY
-            else None
-        )
-
-    @property
-    def client(self) -> ExampleClient | None:
-        return self._client
-
-    # TODO[pydantic]: The following keys were removed: `json_encoders`.
-    # Check https://docs.pydantic.dev/dev-v2/migration/#changes-to-config for more information.
-    model_config = SettingsConfigDict(
-        json_encoders={
-            SecretStr: lambda v: v.get_secret_value() if v else None,
-        }
-    )
+class BaseSettings(DefaultBaseSettings):
+    model_config = SettingsConfigDict(extra="forbid", env_nested_delimiter="__")
 
 
 StrOrPath = Annotated[Path, AfterValidator(string_or_path)]
@@ -98,26 +75,23 @@ class DatabaseConfig(BaseModel):
     path: str = "./domteur.db"
 
 
-class TTSConfig(BaseModel):
-    """Text-to-speech configuration."""
-
-    engine: str = "system"
-
-
-class Settings(SecretsSettings):
+class Settings(BaseSettings):
     version: str = __version__
     config_format: ClassVar[str] = "yaml"
+    model_config = SettingsConfigDict(extra="forbid")
+    broker_host: str = "broker"
+    broker_port: int = 1883
 
     # LLM providers configuration
     llm_providers: list[LLMProvider] = Field(
-        default_factory=lambda: [LLMProvider(type="ollama", model="llama2")]
+        default_factory=lambda: [OllamaProvider(type="ollama", model="llama2")]
     )
 
     # Database configuration
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
 
     # TTS configuration
-    tts: TTSConfig = Field(default_factory=TTSConfig)
+    tts: PiperTTSConfig = Field(default_factory=PiperTTSConfig)
 
     # not serialized
     file_path: StrOrPath | None = Field(

@@ -9,12 +9,14 @@ from rich import print
 
 from domteur import __version__
 from domteur.cli.chat import chat_cli
+from domteur.cli.llm import llm_cli
 from domteur.config import APP_CFG, CONFIG_FN, ENV_CONFIG_KEY, Settings
 
 cli = typer.Typer(pretty_exceptions_show_locals=False)
 
 # Register chat commands
 cli.add_typer(chat_cli, name="chat")
+cli.add_typer(llm_cli, name="llm")
 
 
 log_levels = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO, 3: logging.DEBUG}
@@ -37,6 +39,8 @@ def ensure_config(ctx, option, cfg_file):
     path = Path(cfg_file) if not isinstance(cfg_file, Path) else cfg_file
     env_overwrite = environ.get(ENV_CONFIG_KEY)
     path = Path(env_overwrite, CONFIG_FN) if env_overwrite else path
+
+    # TODO: if path is default path and not exists, raise an error
 
     if not path.parent.is_dir():
         if not cfg_file == APP_CFG:
@@ -92,11 +96,3 @@ def show_config(ctx: typer.Context):
     from rich import print
 
     print(cfg.dump())
-
-
-@cli.command(
-    context_settings={"allow_extra_args": True, "ignore_unknown_options": True}
-)
-def extra(ctx: typer.Context):
-    for extra_arg in ctx.args:
-        print(f"Got extra arg: {extra_arg}")

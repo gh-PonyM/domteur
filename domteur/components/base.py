@@ -2,108 +2,138 @@
 
 import asyncio
 import logging
+import random
+import uuid
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Literal
 
-from domteur.events import Event, EventBusInterface, get_event_bus
+import aiomqtt
+from aiomqtt import Client
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 
-class Component(ABC):
-    """Base class for all components in the event-driven system."""
+@dataclass
+class ContractMap:
+    topic: str
+    contract: BaseModel
+    component: str
+    type: Literal["pub", "sub"]
 
-    def __init__(self, name: str, event_bus: EventBusInterface | None = None):
-        self.name = name
-        self.event_bus = event_bus or get_event_bus()
-        self._running = False
-        self._tasks: list[asyncio.Task] = []
-        self._subscriptions: dict[str, list[str]] = {}  # topic -> handler_names
 
+@dataclass
+class ContractRegistry:
+    items: list[ContractMap]
+
+
+class MessagePayload(BaseModel):
+    """Base type for payloads that all the payload contracts must adhere to"""
+
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    session_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+
+    def to_json(self) -> str:
+        """Serialize event to JSON for pub/sub compatibility."""
+        return self.model_dump_json()
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "MessagePayload":
+        """Deserialize event from JSON for pub/sub compatibility."""
+        return cls.model_validate_json(json_str)
+
+
+class Error(BaseModel):
+    session_id: str
+    content: str
+
+
+class MQTTClient(ABC):
+    """Base class for all mqtt client in the event-driven system."""
+
+    component_name: str = "template"
+
+    def __init__(self, client: Client, name: str | None = None):
+        self.name = name if name else self.default_name
+        self.client = client
         logger.info(f"Component {self.name} initialized")
 
-    async def start(self) -> None:
-        """Start the component and register event handlers."""
-        if self._running:
-            logger.warning(f"Component {self.name} already running")
-            return
-
-        self._running = True
-        await self._register_handlers()
-        await self._start_background_tasks()
-
-        logger.info(f"Component {self.name} started")
-
-    async def stop(self) -> None:
-        """Stop the component gracefully."""
-        if not self._running:
-            return
-
-        self._running = False
-
-        # Cancel background tasks
-        for task in self._tasks:
-            if not task.done():
-                task.cancel()
-
-        # Wait for tasks to complete
-        if self._tasks:
-            await asyncio.gather(*self._tasks, return_exceptions=True)
-
-        await self._cleanup()
-        logger.info(f"Component {self.name} stopped")
-
-    async def publish(self, topic: str, event: Event) -> None:
+    async def publish(self, topic: str, payload: MessagePayload | Error) -> None:
         """Publish an event to a topic."""
-        await self.event_bus.publish(topic, event)
-        logger.debug(f"Component {self.name} published {event.event_type} to {topic}")
+        await self.client.publish(topic, payload.model_dump_json())
 
-    async def subscribe(self, topic: str, handler_name: str) -> None:
+    async def subscribe(self, topic: str) -> None:
         """Subscribe to a topic with a named handler method."""
-        if not hasattr(self, handler_name):
-            raise AttributeError(f"Handler method {handler_name} not found")
+        await self.client.subscribe(topic)
 
-        handler = getattr(self, handler_name)
-        await self.event_bus.subscribe(topic, handler)
+    @property
+    def default_name(self):
+        return f"{self.__class__.__name__.lower()}{random.randint(1000, 9999)}"
 
-        # Track subscription for debugging
-        if topic not in self._subscriptions:
-            self._subscriptions[topic] = []
-        self._subscriptions[topic].append(handler_name)
+    @classmethod
+    def _component_topic(cls):
+        assert cls.component_name != "template", (
+            "Please change the classes component_name attribute"
+        )
+        return f"component/{cls.component_name}"
 
-        logger.debug(f"Component {self.name} subscribed to {topic} with {handler_name}")
+    @property
+    def instance_topic(self):
+        return f"{self._component_topic()}/{self.name}"
 
-    def add_background_task(self, coro) -> None:
-        """Add a background coroutine to run while component is active."""
-        if self._running:
-            task = asyncio.create_task(coro)
-            self._tasks.append(task)
-        else:
-            # Store for later start
-            if not hasattr(self, "_pending_tasks"):
-                self._pending_tasks = []
-            self._pending_tasks.append(coro)
+    @property
+    def error_topic(self):
+        """The default topic for each component to send a standardized error message"""
+        return f"{self.instance_topic}/error"
+
+    @staticmethod
+    def _format_error(err: Any) -> str:
+        return str(err)
+
+    async def _send_error_response(self, session_id: str, error: Any) -> None:
+        """Send error response event."""
+        await self.publish(
+            self.error_topic,
+            Error(
+                session_id=session_id,
+                content=self._format_error(error),
+            ),
+        )
 
     @abstractmethod
-    async def _register_handlers(self) -> None:
-        """Register event handlers - must be implemented by subclasses."""
-        pass
+    async def initialize_subscriptions(self):
+        """Initializes registered message contract topics"""
+        ...
 
-    async def _start_background_tasks(self) -> None:
-        """Start any pending background tasks."""
-        if hasattr(self, "_pending_tasks"):
-            for coro in self._pending_tasks:
-                task = asyncio.create_task(coro)
-                self._tasks.append(task)
-            delattr(self, "_pending_tasks")
+    @abstractmethod
+    async def handle_message(self, msg):
+        """Handles all incoming messages:"""
+        ...
 
-    async def _cleanup(self) -> None:
-        """Override this method for component-specific cleanup."""
-        pass
+    async def start(self):
+        """Starts a 'serve forever' function"""
+        await self.initialize_subscriptions()
+        # waiting for messages is running forever: https://aiomqtt.bo3hm.com/subscribing-to-a-topic.html#listening-without-blocking
+        async for msg in self.client.messages:
+            await self.handle_message(msg)
 
-    def is_running(self) -> bool:
-        """Check if component is currently running."""
-        return self._running
 
-    def get_subscriptions(self) -> dict[str, list[str]]:
-        """Get current topic subscriptions for debugging."""
-        return self._subscriptions.copy()
+async def start_cli_client(
+    client: aiomqtt.Client,
+    mqtt_client: type[MQTTClient],
+    reconnect_interval: int = 5,
+    **client_kwargs,
+):
+    """Start the aiomqtt client with reconnection"""
+    while True:
+        try:
+            async with client:
+                instance = mqtt_client(client, **client_kwargs)
+                await instance.start()
+        except aiomqtt.MqttError:
+            logger.info(
+                f"Connection lost, reconnecting in {reconnect_interval} seconds"
+            )
+            await asyncio.sleep(reconnect_interval)

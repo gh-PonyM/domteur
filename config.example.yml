@@ -1,3 +1,4 @@
+# Example config to run outside of docker to use GPU
 version: "0.1.0"
 
 # LLM Provider Configuration
@@ -25,4 +26,15 @@ database:
 
 # Text-to-Speech Configuration
 tts:
-  engine: "system"  # Options: system, elevenlabs, etc.
+  engine: "piper"
+#  voice_model_name:
+#  voice_config_path: "en_US-lessac-medium.onnx.json"
+  volume: 1.0
+  speed: 1.0
+  use_cuda: false
+  auto_download_voice: true
+  sample_rate: 22050
+  chunk_size: 1024
+
+# Start the broker separately using docker compose up broker
+broker_host: "localhost"

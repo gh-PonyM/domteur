@@ -1,5 +1,5 @@
 """Component system for domteur."""
 
-from domteur.components.base import Component
+from domteur.components.base import Client
 
-__all__ = ["Component"]
+__all__ = ["Client"]

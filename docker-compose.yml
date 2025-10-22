@@ -1,0 +1,38 @@
+---
+services:
+  broker:
+    image: eclipse-mosquitto:2.0
+    container_name: broker
+    restart: unless-stopped
+    ports:
+      - "1883:1883"     # MQTT protocol
+      - "9001:9001"     # WebSocket (optional)
+    environment:
+      - TZ=UTC
+    user: mosquitto
+    volumes:
+      - ./configs/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+  test:
+    image: eclipse-mosquitto:2.0
+    container_name: mqtt-client
+    profiles: ["manual"]
+    depends_on:
+      - broker
+    entrypoint: [""]
+    user: mosquitto
+    command: >
+      mosquitto_pub -h broker -p 1883 -t 'test/topic' -m 'Hello from Docker MQTT client'
+#  llm: &base
+#    image: dompteur:dev
+#    build:
+#      context: .
+#      target: development
+#    depends_on:
+#      - broker
+#    command: domteur llm start
+##    user: dev
+#    environment:
+#      DOMTEUR_CONFIG_DIR: /app
+#    volumes:
+#      - ./config.example.yml:/app/config.yml:ro
+#      - ./domteur/:/app/domteur:ro

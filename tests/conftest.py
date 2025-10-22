@@ -9,7 +9,6 @@ import pytest
 from typer.testing import CliRunner as BaseCliRunner
 
 from domteur.config import CONFIG_FN, ENV_CONFIG_KEY, Settings
-from domteur.events import InMemoryEventBus
 
 
 class CliRunner(BaseCliRunner):
@@ -61,12 +60,3 @@ def runner(temporary_directory, cfg_file):
         temporary_directory, env={ENV_CONFIG_KEY: str(temporary_directory)}
     ):
         yield CliRunner()
-
-
-@pytest.fixture
-async def event_bus():
-    """Create and start an event bus for testing."""
-    bus = InMemoryEventBus()
-    await bus.start()
-    yield bus
-    await bus.stop()
