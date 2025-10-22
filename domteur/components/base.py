@@ -45,12 +45,11 @@ class MessagePayload(BaseModel):
         return cls.model_validate_json(json_str)
 
 
-class Error(BaseModel):
-    session_id: str
+class Error(MessagePayload):
     content: str
 
 
-class MQTTClient(ABC):
+class MQTTClient:
     """Base class for all mqtt client in the event-driven system."""
 
     component_name: str = "template"
