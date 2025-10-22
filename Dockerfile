@@ -1,7 +1,8 @@
 ARG PYTHON_VERSION=3.12
 ARG IMAGE_FLAVOR=slim-bookworm
 FROM python:$PYTHON_VERSION-$IMAGE_FLAVOR AS python-base
-ENV APP_HOME=/app
+ENV APP_HOME=/app \
+  DOMTEUR_CONFIG_DIR=/app
 
 # System Dependencies
 RUN mkdir -p $APP_HOME \

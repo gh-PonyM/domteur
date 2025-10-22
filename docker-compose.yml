@@ -30,8 +30,6 @@ services:
     depends_on:
       - broker
     command: domteur llm start
-    environment:
-      DOMTEUR_CONFIG_DIR: /app
     volumes:
       - ./config.example.yml:/app/config.yml:ro
       - ./domteur/:/app/domteur:ro
