@@ -57,7 +57,7 @@ class LLMProcessor(MQTTClient):
     # Auto-discovery methods will handle subscriptions and message routing
 
     @on_receive(TOPIC_TERMINAL_LLM_REQUEST, Conversation)
-    async def handle_user_input(self, event: Conversation) -> None:
+    async def handle_user_input(self, msg, event: Conversation) -> None:
         """Handle user input events and generate LLM responses."""
         user_message = event.content
 
@@ -65,7 +65,7 @@ class LLMProcessor(MQTTClient):
         if not self.current_provider or self.current_provider not in self.llm_providers:
             error_msg = "No LLM provider available"
             logger.error(error_msg)
-            await self._send_error_response(event.session_id, error_msg)
+            await self._send_error_response(event.session_id, error_msg, str(msg.topic))
             return
 
         llm = self.llm_providers[self.current_provider]
@@ -79,10 +79,10 @@ class LLMProcessor(MQTTClient):
         conversation_history = event.conversation_history
         # Add conversation history
         mapping = {"user": HumanMessage, "assistant": AIMessage}
-        for msg in conversation_history[
+        for hist_msg in conversation_history[
             :-1
         ]:  # Exclude the current message as it's already the last one
-            messages.append(mapping[msg.role](content=msg.content))
+            messages.append(mapping[hist_msg.role](content=hist_msg.content))
 
         messages.append(HumanMessage(user_message))
 
@@ -109,7 +109,7 @@ class LLMProcessor(MQTTClient):
         except Exception as e:
             logger.error(f"Error processing LLM request: {e}")
             await self._send_error_response(
-                event.session_id, f"LLM processing error: {str(e)}"
+                event.session_id, f"LLM processing error: {str(e)}", str(msg.topic)
             )
 
     async def _generate_response(self, llm, messages: MessagesT) -> str:

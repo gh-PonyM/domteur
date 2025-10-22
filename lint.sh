@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 
 set -eu
-ruff format && ruff check --fix
+uv run ruff format && uv run ruff check --fix

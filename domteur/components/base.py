@@ -40,16 +40,19 @@ __contract_registry = ContractRegistry(items=[])
 
 def on_receive(topic: str, payload_contract: type["MessagePayload"]):
     """Decorator for registering message receive handlers with automatic validation."""
+    global __contract_registry
 
     def decorator(func: Callable):
         @wraps(func)
-        async def wrapper(self, payload: bytes) -> None:
+        async def wrapper(self, msg) -> None:
             # Decode JSON payload
             try:
-                data = json.loads(payload.decode("utf-8"))
+                data = json.loads(msg.payload.decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError) as err:
                 await self._send_error_response(
-                    session_id="unknown", error=f"Invalid JSON payload: {err}"
+                    session_id="unknown",
+                    error=f"Invalid JSON payload: {err}",
+                    source_topic=str(msg.topic),
                 )
                 return
 
@@ -58,14 +61,19 @@ def on_receive(topic: str, payload_contract: type["MessagePayload"]):
                 event = payload_contract.model_validate(data)
             except pydantic.ValidationError as err:
                 await self._send_error_response(
-                    session_id=data.get("session_id", "unknown"), error=err
+                    session_id=data.get("session_id", "unknown"),
+                    error=err,
+                    source_topic=str(msg.topic),
                 )
                 return
 
-            # Call original function with validated model
-            await func(self, event)
+            # Call original function with full msg and validated event
+            await func(self, msg, event)
 
-        # Register the contract in the registry
+        # Store handler info directly on the function for instance discovery
+        wrapper._mqtt_handler_topic = topic
+
+        # Register the contract in the global registry
         __contract_registry.items.append(
             ContractMap(
                 topic=topic,
@@ -85,6 +93,7 @@ def on_receive(topic: str, payload_contract: type["MessagePayload"]):
 
 def on_publish(topic: str, payload_contract: type["MessagePayload"]):
     """Decorator for registering message publish handlers."""
+    global __contract_registry
 
     def decorator(func: Callable):
         @wraps(func)
@@ -98,7 +107,10 @@ def on_publish(topic: str, payload_contract: type["MessagePayload"]):
             # Call original function
             await func(self, payload)
 
-        # Register the contract in the registry
+        # Store handler info directly on the function for instance discovery
+        wrapper._mqtt_handler_topic = topic
+
+        # Register the contract in the global registry
         __contract_registry.items.append(
             ContractMap(
                 topic=topic,
@@ -178,32 +190,32 @@ class MQTTClient:
     def _format_error(err: Any) -> str:
         return str(err)
 
-    async def _send_error_response(self, session_id: str, error: Any) -> None:
-        """Send error response event."""
+    async def _send_error_response(
+        self, session_id: str, error: Any, source_topic: str | None = None
+    ) -> None:
+        """Send error response event with optional source topic information."""
+        error_content = self._format_error(error)
+        if source_topic:
+            error_content = f"[from {source_topic}] {error_content}"
+
         await self.publish(
             self.error_topic,
             Error(
                 session_id=session_id,
-                content=self._format_error(error),
+                content=error_content,
             ),
         )
 
     def _get_decorated_handlers(self) -> dict[str, Callable]:
         """Discover all methods decorated with @on_receive in this instance."""
         handlers = {}
-        global __contract_registry
 
-        # Find all registered handlers for this component
-        for contract_map in __contract_registry.items:
-            if (
-                contract_map.type == "sub"
-                and contract_map.component == self.__class__.__name__
-            ):
-                # Get the method by name
-                if hasattr(self, contract_map.method_name):
-                    method = getattr(self, contract_map.method_name)
-                    if inspect.ismethod(method):
-                        handlers[contract_map.topic] = method
+        # Inspect all methods in this instance
+        for method_name in dir(self):
+            method = getattr(self, method_name)
+            if inspect.ismethod(method) and hasattr(method, "_mqtt_handler_topic"):
+                topic = method._mqtt_handler_topic
+                handlers[topic] = method
 
         return handlers
 
@@ -225,7 +237,7 @@ class MQTTClient:
             if msg.topic.matches(topic):
                 handler = method
                 matched += 1
-                await handler(msg.payload)
+                await handler(msg)  # Pass full msg object to decorated handler
         if not matched:
             logger.critical(
                 f"No handler found for topic: {msg.topic} in component {self.name}"
