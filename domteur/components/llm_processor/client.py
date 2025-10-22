@@ -1,13 +1,11 @@
 """LLM processor component using LangChain for Ollama integration."""
 
-import json
 import logging
 
-import pydantic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_ollama import OllamaLLM
 
-from domteur.components.base import MQTTClient
+from domteur.components.base import MQTTClient, on_receive
 from domteur.components.llm_processor.constants import (
     COMPONENT_NAME,
     TOPIC_COMPONENT_LLM_PROC_ANSWER,
@@ -56,24 +54,11 @@ class LLMProcessor(MQTTClient):
                 # elif isinstance(provider_config, OpenRouterProvider):
                 #     # Initialize OpenRouter provider
 
-    async def initialize_subscriptions(self):
-        await self.subscribe(TOPIC_TERMINAL_LLM_REQUEST)
+    # Auto-discovery methods will handle subscriptions and message routing
 
-    async def handle_message(self, msg):
-        if msg.topic.matches(TOPIC_TERMINAL_LLM_REQUEST):
-            await self.handle_user_input(msg.payload)
-
-    async def handle_user_input(self, payload: bytes) -> None:
+    @on_receive(TOPIC_TERMINAL_LLM_REQUEST, Conversation)
+    async def handle_user_input(self, event: Conversation) -> None:
         """Handle user input events and generate LLM responses."""
-        data = json.loads(payload.decode("utf-8"))
-        try:
-            event = Conversation.model_validate(data)
-        except pydantic.ValidationError as err:
-            await self._send_error_response(
-                session_id=data.get("session_id", "nan"), error=err
-            )
-            return
-
         user_message = event.content
 
         # Get current LLM provider

@@ -1,15 +1,19 @@
 """Base component class for event-driven architecture."""
 
 import asyncio
+import inspect
+import json
 import logging
 import random
 import uuid
-from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from functools import wraps
 from typing import Any, Literal
 
 import aiomqtt
+import pydantic
 from aiomqtt import Client
 from pydantic import BaseModel, Field
 
@@ -19,14 +23,97 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ContractMap:
     topic: str
-    contract: BaseModel
+    contract: type[BaseModel]
     component: str
+    method_name: str
     type: Literal["pub", "sub"]
 
 
 @dataclass
 class ContractRegistry:
     items: list[ContractMap]
+
+
+# Private instance of ContractRegistry for managing decorators
+__contract_registry = ContractRegistry(items=[])
+
+
+def on_receive(topic: str, payload_contract: type["MessagePayload"]):
+    """Decorator for registering message receive handlers with automatic validation."""
+
+    def decorator(func: Callable):
+        @wraps(func)
+        async def wrapper(self, payload: bytes) -> None:
+            # Decode JSON payload
+            try:
+                data = json.loads(payload.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as err:
+                await self._send_error_response(
+                    session_id="unknown", error=f"Invalid JSON payload: {err}"
+                )
+                return
+
+            # Validate against contract
+            try:
+                event = payload_contract.model_validate(data)
+            except pydantic.ValidationError as err:
+                await self._send_error_response(
+                    session_id=data.get("session_id", "unknown"), error=err
+                )
+                return
+
+            # Call original function with validated model
+            await func(self, event)
+
+        # Register the contract in the registry
+        __contract_registry.items.append(
+            ContractMap(
+                topic=topic,
+                contract=payload_contract,
+                component=func.__qualname__.split(".")[0]
+                if "." in func.__qualname__
+                else "unknown",
+                method_name=func.__name__,
+                type="sub",
+            )
+        )
+
+        return wrapper
+
+    return decorator
+
+
+def on_publish(topic: str, payload_contract: type["MessagePayload"]):
+    """Decorator for registering message publish handlers."""
+
+    def decorator(func: Callable):
+        @wraps(func)
+        async def wrapper(self, payload) -> None:
+            # Validate payload against contract
+            if not isinstance(payload, payload_contract):
+                raise ValueError(
+                    f"Payload must be instance of {payload_contract.__name__}"
+                )
+
+            # Call original function
+            await func(self, payload)
+
+        # Register the contract in the registry
+        __contract_registry.items.append(
+            ContractMap(
+                topic=topic,
+                contract=payload_contract,
+                component=func.__qualname__.split(".")[0]
+                if "." in func.__qualname__
+                else "unknown",
+                method_name=func.__name__,
+                type="pub",
+            )
+        )
+
+        return wrapper
+
+    return decorator
 
 
 class MessagePayload(BaseModel):
@@ -101,15 +188,48 @@ class MQTTClient:
             ),
         )
 
-    @abstractmethod
-    async def initialize_subscriptions(self):
-        """Initializes registered message contract topics"""
-        ...
+    def _get_decorated_handlers(self) -> dict[str, Callable]:
+        """Discover all methods decorated with @on_receive in this instance."""
+        handlers = {}
+        global __contract_registry
 
-    @abstractmethod
+        # Find all registered handlers for this component
+        for contract_map in __contract_registry.items:
+            if (
+                contract_map.type == "sub"
+                and contract_map.component == self.__class__.__name__
+            ):
+                # Get the method by name
+                if hasattr(self, contract_map.method_name):
+                    method = getattr(self, contract_map.method_name)
+                    if inspect.ismethod(method):
+                        handlers[contract_map.topic] = method
+
+        return handlers
+
+    async def initialize_subscriptions(self):
+        """Auto-discover and subscribe to all registered topics for this component."""
+        handlers = self._get_decorated_handlers()
+
+        for topic in handlers.keys():
+            logger.info(f"Auto-subscribing {self.name} to topic: {topic}")
+            await self.subscribe(topic)
+
     async def handle_message(self, msg):
-        """Handles all incoming messages:"""
-        ...
+        """Auto-route incoming messages to decorated handlers based on topic matching."""
+        handlers = self._get_decorated_handlers()
+
+        # Find matching handler by topic
+        matched = 0
+        for topic, method in handlers.items():
+            if msg.topic.matches(topic):
+                handler = method
+                matched += 1
+                await handler(msg.payload)
+        if not matched:
+            logger.critical(
+                f"No handler found for topic: {msg.topic} in component {self.name}"
+            )
 
     async def start(self):
         """Starts a 'serve forever' function"""

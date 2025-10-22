@@ -20,7 +20,7 @@ Event-driven AI assistant with:
 ## Event Architecture
 ```
 ┌─────────────────┐    JSON Messages    ┌──────────────────┐
-│ repl            │ ──────────────────> │ event_dispatcher │
+│ repl            │ ──────────────────> │ mqtt broker      │
 │                 │                     │                  │
 └─────────────────┘                     └──────────────────┘
                                                  │
@@ -34,35 +34,12 @@ Event-driven AI assistant with:
 ```
 
 ## Message Protocol (JSON)
-```json
-{
-    "event_type": "user_input | llm_response | tts_request | persist_message",
-    "timestamp": "2025-10-19T...",
-    "session_id": "uuid",
-    "payload": {
-        "content": "message content",
-        "metadata": {"user": "...", "model": "..."}
-    }
-}
-```
+
+The underlying library aiomqtt encodes the payload in binary or it can be None. Message contracts are used by topic.
 
 ## Configuration Structure
-```yaml
-llm_providers:
-  - type: "ollama"
-    base_url: "http://localhost:11434"
-    model: "llama2"
-  - type: "openrouter"
-    api_key: "sk-..."
-    model: "anthropic/claude-3-haiku"
 
-database:
-  type: "sqlite"
-  path: "./domteur.db"
-
-tts:
-  engine: "system"
-```
+The example structure can be found in `config.example.yml`.
 
 ## Build/Test/Lint Commands
 - Run tests: `uv run pytest` or `pytest tests/`
@@ -88,4 +65,3 @@ tts:
 - Config handling via pydantic-settings with YAML files
 - CLI entry point: `domteur.main:cli`
 - Event system spawns all components
-- JSON message protocol for inter-component communication
