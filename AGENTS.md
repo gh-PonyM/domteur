@@ -45,7 +45,7 @@ The example structure can be found in `config.example.yml`.
 - Run tests: `uv run pytest` or `pytest tests/`
 - Run single test: `uv run pytest tests/test_cli.py::test_help`
 - Lint/format: `./lint.sh` or `ruff format && ruff check --fix`
-- Build: `uv build` (uses hatchling)
+- Type check: `uv run pyrefly check`
 
 ## Code Style
 - Use ruff for linting (line length: 88 chars)

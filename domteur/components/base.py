@@ -97,15 +97,17 @@ def on_publish(topic: str, payload_contract: type["MessagePayload"]):
 
     def decorator(func: Callable):
         @wraps(func)
-        async def wrapper(self, payload) -> None:
-            # Validate payload against contract
-            if not isinstance(payload, payload_contract):
-                raise ValueError(
-                    f"Payload must be instance of {payload_contract.__name__}"
+        async def wrapper(self, msg, *args, **kwargs):
+            try:
+                response = await func(self, msg, *args, **kwargs)
+            except Exception as err:
+                await self._send_error_response(
+                    session_id="unknown",
+                    error=err,
+                    source_topic=str(msg.topic),
                 )
-
-            # Call original function
-            await func(self, payload)
+                return
+            await self.publish(topic.replace("+", self.name), response)
 
         # Store handler info directly on the function for instance discovery
         wrapper._mqtt_handler_topic = topic

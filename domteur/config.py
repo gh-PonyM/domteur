@@ -37,7 +37,18 @@ class BaseSettings(DefaultBaseSettings):
 StrOrPath = Annotated[Path, AfterValidator(string_or_path)]
 
 
-class OllamaProvider(BaseModel):
+class BaseLLMProvider(BaseModel):
+    model: str
+    system_prompt: str = (
+        "You are a helpful AI assistant. Provide concise and helpful responses."
+    )
+
+    @property
+    def model_id(self):
+        return f"{getattr(self, 'type')}:{self.model}"
+
+
+class OllamaProvider(BaseLLMProvider):
     """Ollama LLM provider configuration."""
 
     type: Literal["ollama"]

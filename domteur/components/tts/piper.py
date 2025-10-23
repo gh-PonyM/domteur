@@ -4,13 +4,18 @@ import logging
 import tempfile
 import wave
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import pyaudio
 from piper import PiperVoice
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from domteur.components.base import MQTTClient
+from domteur.components.base import MQTTClient, on_receive
+from domteur.components.llm_processor.constants import TOPIC_COMPONENT_LLM_PROC_ANSWER
+from domteur.components.llm_processor.contracts import LLMResponse
+
+if TYPE_CHECKING:
+    from domteur.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +31,7 @@ class PiperTTSConfig(BaseModel):
     auto_download_voice: bool = True
     sample_rate: int = 22050
     chunk_size: int = 1024
+    model_storage_path: Path = Field(default_factory=lambda: Path("/tmp"))
 
     @property
     def voice_model_path(self) -> Path:
@@ -42,7 +48,7 @@ def synthesize_to_file(voice, text: str, output_path: Path) -> None:
         voice.synthesize_wav(text, wav_file)
 
 
-def download_voice(voice_name: str) -> None:
+def download_voice(voice_name: str, dl_dir: Path) -> None:
     """Download the voice model if it doesn't exist."""
     logger.info(f"Downloading voice model: {voice_name}")
     import subprocess
@@ -50,7 +56,14 @@ def download_voice(voice_name: str) -> None:
 
     # Use piper's download utility
     subprocess.run(
-        [sys.executable, "-m", "piper.download_voices", voice_name],
+        [
+            sys.executable,
+            "-m",
+            "piper.download_voices",
+            "--download-dir",
+            str(dl_dir),
+            voice_name,
+        ],
         capture_output=True,
         text=True,
         check=True,
@@ -100,7 +113,7 @@ def load_voice(
     # Auto-download voice if configured and not exists
     if auto_download_voice and not model_path.exists():
         # TODO: Download path not specified
-        download_voice(voice_name)
+        download_voice(voice_name, model_path.parent)
 
     if not model_path.exists():
         raise FileNotFoundError(f"Voice model not found: {model_path}")
@@ -111,35 +124,26 @@ class PiperTTS(MQTTClient):
     """Text-to-speech component that converts text to speech using Piper TTS.
     This is meant to run in a separate thread if async is used"""
 
-    def __init__(self, config: PiperTTSConfig, **kwargs):
-        super().__init__("text_to_speech_engine", **kwargs)
-        self.config = config
+    def __init__(self, client, settings: "Settings", name: str | None = None):
+        super().__init__(client, name)
+        self.config = settings.tts
         self.voice: PiperVoice | None = None
         self.audio_interface: pyaudio.PyAudio | None = None
 
-    async def _register_handlers(self) -> None:
-        """Register event handlers for TTS requests."""
-        pass
-        # await self.subscribe(Topics.TTS_OUTPUT, "handle_tts_request")
+    def _prepare_text(self, text):
+        return text
 
-    # def handle_tts_request(self, event: MessagePayload) -> None:
-    #     """Handle TTS request event."""
-    #     if event.event_type != EventType.TTS_REQUEST:
-    #         return
-    #
-    #     # TODO: Define own event schema
-    #     text = event.payload.get("text", "")
-    #     if not text:
-    #         logger.warning("Empty text in TTS request")
-    #         return
-    #
-    #     logger.info(f"Processing TTS request: {text[:50]}...")
-    #
-    #     try:
-    #         self._synthesize_and_play(text)
-    #         logger.info("TTS synthesis and playback completed")
-    #     except Exception as e:
-    #         logger.error(f"TTS synthesis failed: {e}")
+    @on_receive(TOPIC_COMPONENT_LLM_PROC_ANSWER, LLMResponse)
+    async def handle_tts_request(self, event: LLMResponse) -> None:
+        """Handle LLM responses."""
+        text = self._prepare_text(event.content)
+        logger.info(f"Processing TTS request: {text[:50]}...")
+
+        try:
+            self._synthesize_and_play(text)
+            logger.info("TTS synthesis and playback completed")
+        except Exception as e:
+            logger.error(f"TTS synthesis failed: {e}")
 
     def _synthesize_and_play(self, text: str) -> None:
         """Synthesize text to speech and play it directly."""

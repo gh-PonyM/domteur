@@ -5,7 +5,7 @@ import logging
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_ollama import OllamaLLM
 
-from domteur.components.base import MQTTClient, on_receive
+from domteur.components.base import MQTTClient, on_publish, on_receive
 from domteur.components.llm_processor.constants import (
     COMPONENT_NAME,
     TOPIC_COMPONENT_LLM_PROC_ANSWER,
@@ -15,13 +15,12 @@ from domteur.components.llm_processor.contracts import (
     LLMResponse,
 )
 from domteur.components.repl.constants import TOPIC_TERMINAL_LLM_REQUEST
-from domteur.config import OllamaProvider, Settings
+from domteur.config import BaseLLMProvider, OllamaProvider, Settings
 
 logger = logging.getLogger(__name__)
 
 
 MessagesT = list[AIMessage | HumanMessage | SystemMessage]
-UnsetProvider = "unset"
 
 
 class LLMProcessor(MQTTClient):
@@ -33,7 +32,7 @@ class LLMProcessor(MQTTClient):
         super().__init__(client, name)
         self.settings = settings
         self.llm_providers = {}
-        self.current_provider = UnsetProvider
+        self.current_provider: BaseLLMProvider | None = None
         self._initialize_providers()
 
     def _initialize_providers(self) -> None:
@@ -44,12 +43,12 @@ class LLMProcessor(MQTTClient):
                 llm = OllamaLLM(
                     model=provider_config.model, base_url=provider_config.base_url
                 )
-                self.llm_providers[provider_config.model] = llm
+                self.llm_providers[provider_config.model_id] = llm
 
                 # Set first provider as current
-                if self.current_provider == UnsetProvider:
-                    self.current_provider = provider_config.model
-                    logger.info(f"Set default LLM provider: {provider_config.model}")
+                if not self.current_provider:
+                    self.current_provider = provider_config
+                    logger.info(f"Set default LLM provider: {provider_config.model_id}")
 
                 # TODO: Add OpenRouter support later
                 # elif isinstance(provider_config, OpenRouterProvider):
@@ -64,21 +63,17 @@ class LLMProcessor(MQTTClient):
 
         # Get current LLM provider
         if (
-            self.current_provider == UnsetProvider
-            or self.current_provider not in self.llm_providers
+            self.current_provider is None
+            or self.current_provider.model_id not in self.llm_providers
         ):
             error_msg = "No LLM provider available"
             logger.error(error_msg)
             await self._send_error_response(event.session_id, error_msg, str(msg.topic))
             return
 
-        llm = self.llm_providers[self.current_provider]
-
         # Build conversation prompt with history
         messages: MessagesT = [
-            SystemMessage(
-                content="You are a helpful AI assistant. Provide concise and helpful responses."
-            )
+            SystemMessage(content=self.current_provider.system_prompt)
         ]
         conversation_history = event.conversation_history
         # Add conversation history
@@ -89,32 +84,23 @@ class LLMProcessor(MQTTClient):
             messages.append(mapping[hist_msg.role](content=hist_msg.content))
 
         messages.append(HumanMessage(user_message))
+        response_event = LLMResponse(
+            session_id=event.session_id,
+            content="No provider",
+            model=self.current_provider.model_id,
+            original_message=user_message,
+        )
+        await self.send_answer(msg, messages, response_event)
 
-        try:
-            logger.info(
-                f"Processing message with {self.current_provider} (history: {len(conversation_history)} messages): {user_message[:50]}..."
-            )
-
-            # Generate response using conversation context
-            response = await self._generate_response(llm, messages)
-
-            # Create and publish LLM response event
-            response_event = LLMResponse(
-                session_id=event.session_id,
-                content=response,
-                model=self.current_provider,
-                original_message=user_message,
-            )
-            await self.publish(
-                TOPIC_COMPONENT_LLM_PROC_ANSWER.replace("+", self.name), response_event
-            )
-            logger.info("LLM response generated and published")
-
-        except Exception as e:
-            logger.error(f"Error processing LLM request: {e}")
-            await self._send_error_response(
-                event.session_id, f"LLM processing error: {str(e)}", str(msg.topic)
-            )
+    @on_publish(TOPIC_COMPONENT_LLM_PROC_ANSWER, LLMResponse)
+    async def send_answer(self, msg, messages: MessagesT, pre_response: LLMResponse):
+        if not self.current_provider:
+            return pre_response
+        llm = self.llm_providers[self.current_provider.model_id]
+        # Generate response using conversation context
+        pre_response.content = await self._generate_response(llm, messages)
+        # Create and publish LLM response event
+        return pre_response
 
     async def _generate_response(self, llm, messages: MessagesT) -> str:
         """Generate response using the LLM."""
@@ -133,12 +119,12 @@ class LLMProcessor(MQTTClient):
         """Get list of available LLM models."""
         return list(self.llm_providers.keys())
 
-    def switch_provider(self, model_name: str) -> bool:
+    def switch_provider(self, model_id: str) -> bool:
         """Switch to a different LLM provider/model."""
-        if model_name in self.llm_providers:
-            self.current_provider = model_name
-            logger.info(f"Switched to LLM provider: {model_name}")
+        if model_id in self.llm_providers:
+            self.current_provider = self.llm_providers[model_id]
+            logger.info(f"Switched to LLM provider: {model_id}")
             return True
         else:
-            logger.warning(f"Model {model_name} not available")
+            logger.warning(f"Model {model_id} not available")
             return False
