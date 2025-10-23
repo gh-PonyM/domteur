@@ -8,7 +8,7 @@ import random
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Literal
 
@@ -131,7 +131,7 @@ def on_publish(topic: str, payload_contract: type["MessagePayload"]):
 class MessagePayload(BaseModel):
     """Base type for payloads that all the payload contracts must adhere to"""
 
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     session_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_json(self) -> str:

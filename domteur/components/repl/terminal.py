@@ -20,9 +20,6 @@ class LLMTerminalChat(MQTTClient):
         self.conversation_history: list[HistoryEntry] = []
         self.settings = settings
 
-    async def initialize_subscriptions(self):
-        await self.subscribe(TOPIC_COMPONENT_LLM_PROC_ANSWER)
-
     async def handle_message(self, msg):
         if msg.topic.matches(TOPIC_COMPONENT_LLM_PROC_ANSWER):
             answer = LLMResponse.model_validate_json(msg.payload.decode("utf-8"))
@@ -52,7 +49,7 @@ class LLMTerminalChat(MQTTClient):
             await self.handle_message(msg)
 
     async def start(self):
-        await self.initialize_subscriptions()
+        await self.subscribe(TOPIC_COMPONENT_LLM_PROC_ANSWER)
         async with asyncio.TaskGroup() as tg:
             tg.create_task(self.ask_questions())
             tg.create_task(self.listen())

@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 MessagesT = list[AIMessage | HumanMessage | SystemMessage]
+UnsetProvider = "unset"
 
 
 class LLMProcessor(MQTTClient):
@@ -32,7 +33,7 @@ class LLMProcessor(MQTTClient):
         super().__init__(client, name)
         self.settings = settings
         self.llm_providers = {}
-        self.current_provider = None
+        self.current_provider = UnsetProvider
         self._initialize_providers()
 
     def _initialize_providers(self) -> None:
@@ -46,7 +47,7 @@ class LLMProcessor(MQTTClient):
                 self.llm_providers[provider_config.model] = llm
 
                 # Set first provider as current
-                if self.current_provider is None:
+                if self.current_provider == UnsetProvider:
                     self.current_provider = provider_config.model
                     logger.info(f"Set default LLM provider: {provider_config.model}")
 
@@ -62,7 +63,10 @@ class LLMProcessor(MQTTClient):
         user_message = event.content
 
         # Get current LLM provider
-        if not self.current_provider or self.current_provider not in self.llm_providers:
+        if (
+            self.current_provider == UnsetProvider
+            or self.current_provider not in self.llm_providers
+        ):
             error_msg = "No LLM provider available"
             logger.error(error_msg)
             await self._send_error_response(event.session_id, error_msg, str(msg.topic))
