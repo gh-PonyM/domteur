@@ -1,9 +1,10 @@
-import logging
+import sys
 from os import environ
 from pathlib import Path
 from typing import Annotated
 
 import typer
+from loguru import logger
 from pydantic import ValidationError
 from rich import print
 
@@ -19,7 +20,22 @@ cli.add_typer(chat_cli, name="chat")
 cli.add_typer(llm_cli, name="llm")
 
 
-log_levels = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO, 3: logging.DEBUG}
+log_levels = {0: "ERROR", 1: "WARNING", 2: "INFO", 3: "DEBUG"}
+
+
+def configure_logging(verbose: int):
+    """Configure loguru logging based on verbosity level."""
+    # Remove default handler
+    logger.remove()
+
+    logger.add(
+        sys.stderr,
+        level=log_levels[verbose],
+        colorize=True,
+        backtrace=True,
+        diagnose=True,
+    )
+    logger.info(f"Logging configured at level: {log_levels[verbose]}")
 
 
 def version_info(value: bool):
@@ -76,7 +92,7 @@ def main(
     ] = 0,
 ):
     """domteur command line interface made with typer"""
-    logging.basicConfig(level=log_levels[verbose])
+    configure_logging(verbose)
     if ctx.invoked_subcommand is None:
         pass
 

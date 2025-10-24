@@ -1,12 +1,12 @@
 """Text-to-speech component using Piper TTS with direct audio output."""
 
-import logging
 import tempfile
 import wave
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import pyaudio
+from loguru import logger
 from piper import PiperVoice
 from pydantic import BaseModel, Field
 
@@ -16,8 +16,6 @@ from domteur.components.llm_processor.contracts import LLMResponse
 
 if TYPE_CHECKING:
     from domteur.config import Settings
-
-logger = logging.getLogger(__name__)
 
 
 class PiperTTSConfig(BaseModel):

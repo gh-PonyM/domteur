@@ -29,7 +29,7 @@ services:
       target: development
     depends_on:
       - broker
-    command: domteur llm start
+    command: domteur -vv llm start
     volumes:
       - ./config.example.yml:/app/config.yml:ro
       - ./domteur/:/app/domteur:ro

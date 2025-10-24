@@ -3,7 +3,6 @@
 import asyncio
 import inspect
 import json
-import logging
 import random
 import uuid
 from collections.abc import Callable
@@ -15,9 +14,8 @@ from typing import Any, Literal
 import aiomqtt
 import pydantic
 from aiomqtt import Client
+from loguru import logger
 from pydantic import BaseModel, Field
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -305,7 +303,7 @@ async def start_cli_client(
             if shutdown_event.is_set():
                 logger.info("MQTT error during shutdown, exiting")
                 break
-            logger.info(
+            logger.warning(
                 f"Connection lost ({e}), reconnecting in {reconnect_interval} seconds"
             )
             try:

@@ -45,7 +45,7 @@ class BaseLLMProvider(BaseModel):
 
     @property
     def model_id(self):
-        return f"{getattr(self, 'type')}:{self.model}"
+        return f"{self.type}:{self.model}"
 
 
 class OllamaProvider(BaseLLMProvider):

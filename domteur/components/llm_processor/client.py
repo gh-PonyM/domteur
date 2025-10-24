@@ -1,9 +1,8 @@
 """LLM processor component using LangChain for Ollama integration."""
 
-import logging
-
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_ollama import OllamaLLM
+from loguru import logger
 
 from domteur.components.base import MQTTClient, on_publish, on_receive
 from domteur.components.llm_processor.constants import (
@@ -16,9 +15,6 @@ from domteur.components.llm_processor.contracts import (
 )
 from domteur.components.repl.constants import TOPIC_TERMINAL_LLM_REQUEST
 from domteur.config import BaseLLMProvider, OllamaProvider, Settings
-
-logger = logging.getLogger(__name__)
-
 
 MessagesT = list[AIMessage | HumanMessage | SystemMessage]
 
