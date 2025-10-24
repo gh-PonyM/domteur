@@ -242,12 +242,15 @@ class MQTTClient:
                 f"No handler found for topic: {msg.topic} in component {self.name}"
             )
 
+    async def listen(self):
+        async for msg in self.client.messages:
+            await self.handle_message(msg)
+
     async def start(self):
         """Starts a 'serve forever' function"""
         await self.initialize_subscriptions()
         # waiting for messages is running forever: https://aiomqtt.bo3hm.com/subscribing-to-a-topic.html#listening-without-blocking
-        async for msg in self.client.messages:
-            await self.handle_message(msg)
+        await self.listen()
 
 
 async def start_cli_client(
