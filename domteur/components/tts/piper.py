@@ -13,6 +13,8 @@ from pydantic import BaseModel, Field
 from domteur.components.base import MQTTClient, on_receive
 from domteur.components.llm_processor.constants import TOPIC_COMPONENT_LLM_PROC_ANSWER
 from domteur.components.llm_processor.contracts import LLMResponse
+from domteur.components.tts.constants import TOPIC_PIPER_TTS_STOP
+from domteur.components.tts.contracts import StopVoiceSignal
 
 if TYPE_CHECKING:
     from domteur.config import Settings
@@ -131,12 +133,17 @@ class PiperTTS(MQTTClient):
     def _prepare_text(self, text):
         return text
 
+    @on_receive(TOPIC_PIPER_TTS_STOP, StopVoiceSignal)
+    async def stop_playing(self, msg):
+        pass
+
     @on_receive(TOPIC_COMPONENT_LLM_PROC_ANSWER, LLMResponse)
     async def handle_tts_request(self, event: LLMResponse) -> None:
         """Handle LLM responses."""
         text = self._prepare_text(event.content)
         logger.info(f"Processing TTS request: {text[:50]}...")
 
+        # TODO: put this in a background thread and cancel it if a message arrives
         try:
             self._synthesize_and_play(text)
             logger.info("TTS synthesis and playback completed")

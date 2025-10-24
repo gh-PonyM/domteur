@@ -1,0 +1,3 @@
+COMPONENT_NAME = "piper_tts"
+TOPIC_PIPER_TTS = f"component/{COMPONENT_NAME}/+"
+TOPIC_PIPER_TTS_STOP = f"{TOPIC_PIPER_TTS}/stop"

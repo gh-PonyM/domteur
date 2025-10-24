@@ -11,12 +11,12 @@ from domteur.components.llm_processor.contracts import (
     HistoryEntry,
     LLMResponse,
 )
-from domteur.components.repl.constants import TOPIC_TERMINAL_LLM_REQUEST
+from domteur.components.repl.constants import COMPONENT_NAME, TOPIC_TERMINAL_LLM_REQUEST
 from domteur.config import Settings
 
 
 class LLMTerminalChat(MQTTClient):
-    component_name = "llm_terminal"
+    component_name = COMPONENT_NAME
 
     def __init__(self, client, settings: Settings, name: str | None = None):
         super().__init__(client, name)
