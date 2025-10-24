@@ -107,9 +107,6 @@ def on_publish(topic: str, payload_contract: type["MessagePayload"]):
                 return
             await self.publish(topic.replace("+", self.name), response)
 
-        # Store handler info directly on the function for instance discovery
-        wrapper._mqtt_handler_topic = topic
-
         # Register the contract in the global registry
         __contract_registry.items.append(
             ContractMap(
