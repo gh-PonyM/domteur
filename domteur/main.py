@@ -112,3 +112,33 @@ def show_config(ctx: typer.Context):
     from rich import print
 
     print(cfg.dump())
+
+
+@cli.command()
+def list_components():
+    """List the registry of components"""
+    from rich.console import Console
+    from rich.table import Table
+
+    from domteur.components.base import get_registry_items
+
+    items = get_registry_items()
+
+    table = Table(title="Component Registry")
+    table.add_column("Component", style="cyan")
+    table.add_column("Type", style="magenta")
+    table.add_column("Topic", style="green")
+    table.add_column("Method", style="yellow")
+    table.add_column("Contract", style="blue")
+
+    for item in items:
+        table.add_row(
+            item.component,
+            item.type,
+            item.topic,
+            item.method_name,
+            item.contract.__name__,
+        )
+
+    console = Console()
+    console.print(table)
