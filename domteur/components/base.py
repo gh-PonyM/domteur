@@ -256,17 +256,60 @@ class MQTTClient:
 async def start_cli_client(
     client: aiomqtt.Client,
     mqtt_client: type[MQTTClient],
+    shutdown_event: asyncio.Event,
     reconnect_interval: int = 5,
     **client_kwargs,
 ):
     """Start the aiomqtt client with reconnection"""
-    while True:
+    while not shutdown_event.is_set():
         try:
             async with client:
                 instance = mqtt_client(client, **client_kwargs)
-                await instance.start()
-        except aiomqtt.MqttError:
+
+                # Create tasks for client and shutdown monitoring
+                client_task = asyncio.create_task(instance.start())
+                shutdown_task = asyncio.create_task(shutdown_event.wait())
+
+                try:
+                    # Wait for either client completion or shutdown
+                    done, pending = await asyncio.wait(
+                        [client_task, shutdown_task],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+
+                    # Cancel pending tasks
+                    for task in pending:
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+
+                    # If shutdown was triggered, break out of retry loop
+                    if shutdown_event.is_set():
+                        break
+
+                except asyncio.CancelledError:
+                    # Handle cancellation gracefully
+                    logger.info("Client task cancelled during shutdown")
+                    for task in [client_task, shutdown_task]:
+                        if not task.done():
+                            task.cancel()
+                            try:
+                                await task
+                            except asyncio.CancelledError:
+                                pass
+                    break
+
+        except aiomqtt.MqttError as e:
+            if shutdown_event.is_set():
+                logger.info("MQTT error during shutdown, exiting")
+                break
             logger.info(
-                f"Connection lost, reconnecting in {reconnect_interval} seconds"
+                f"Connection lost ({e}), reconnecting in {reconnect_interval} seconds"
             )
-            await asyncio.sleep(reconnect_interval)
+            try:
+                await asyncio.wait_for(asyncio.sleep(reconnect_interval), timeout=1.0)
+            except asyncio.TimeoutError:
+                if shutdown_event.is_set():
+                    break
