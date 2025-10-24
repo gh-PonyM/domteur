@@ -43,6 +43,7 @@ def on_receive(topic: str, payload_contract: type["MessagePayload"]):
     def decorator(func: Callable):
         @wraps(func)
         async def wrapper(self, msg) -> None:
+            src_topic = str(msg.topic) if msg else None
             # Decode JSON payload
             try:
                 data = json.loads(msg.payload.decode("utf-8"))
@@ -50,7 +51,7 @@ def on_receive(topic: str, payload_contract: type["MessagePayload"]):
                 await self._send_error_response(
                     session_id="unknown",
                     error=f"Invalid JSON payload: {err}",
-                    source_topic=str(msg.topic),
+                    source_topic=src_topic,
                 )
                 return
 
@@ -61,7 +62,7 @@ def on_receive(topic: str, payload_contract: type["MessagePayload"]):
                 await self._send_error_response(
                     session_id=data.get("session_id", "unknown"),
                     error=err,
-                    source_topic=str(msg.topic),
+                    source_topic=src_topic,
                 )
                 return
 
@@ -95,16 +96,17 @@ def on_publish(topic: str, payload_contract: type["MessagePayload"]):
 
     def decorator(func: Callable):
         @wraps(func)
-        async def wrapper(self, msg, *args, **kwargs):
+        async def wrapper(self, msg: aiomqtt.Message | None, *args, **kwargs):
             try:
                 response = await func(self, msg, *args, **kwargs)
             except Exception as err:
                 await self._send_error_response(
                     session_id="unknown",
                     error=err,
-                    source_topic=str(msg.topic),
+                    source_topic=str(msg.topic) if msg else None,
                 )
                 return
+            # TODO: proper identification if what the component_id of the instance is
             await self.publish(topic.replace("+", self.name), response)
 
         # Register the contract in the global registry
