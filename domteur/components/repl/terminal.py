@@ -1,9 +1,10 @@
 import asyncio
 
+from loguru import logger
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
 
-from domteur.components.base import MQTTClient
+from domteur.components.base import MQTTClient, on_publish, on_receive
 from domteur.components.llm_processor.constants import TOPIC_COMPONENT_LLM_PROC_ANSWER
 from domteur.components.llm_processor.contracts import (
     Conversation,
@@ -15,41 +16,45 @@ from domteur.config import Settings
 
 
 class LLMTerminalChat(MQTTClient):
+    component_name = "llm_terminal"
+
     def __init__(self, client, settings: Settings, name: str | None = None):
         super().__init__(client, name)
         self.conversation_history: list[HistoryEntry] = []
+        self.session_id = None
         self.settings = settings
 
-    async def handle_message(self, msg):
-        if msg.topic.matches(TOPIC_COMPONENT_LLM_PROC_ANSWER):
-            answer = LLMResponse.model_validate_json(msg.payload.decode("utf-8"))
-            self.conversation_history.extend(
-                [
-                    HistoryEntry(role="user", content=answer.original_message),
-                    HistoryEntry(role="assistant", content=answer.content),
-                ]
-            )
-            with patch_stdout():
-                print(f"\n🤖 Assistant: {answer.content}")
+    @on_receive(TOPIC_COMPONENT_LLM_PROC_ANSWER, LLMResponse)
+    async def handle_llm_message(self, msg, response: LLMResponse):
+        self.conversation_history.extend(
+            [
+                HistoryEntry(role="user", content=response.original_message),
+                HistoryEntry(role="assistant", content=response.content),
+            ]
+        )
+        with patch_stdout():
+            print(f"\n🤖 Assistant: {response.content}\n")
 
     async def ask_questions(self):
         session = PromptSession()
         while True:
             with patch_stdout():
-                user = await session.prompt_async("💬 You: ")
-            await self.publish(
-                TOPIC_TERMINAL_LLM_REQUEST.replace("+", self.name),
-                Conversation(
-                    content=user, conversation_history=self.conversation_history
-                ),
-            )
+                query = await session.prompt_async("💬 You: ")
+            if query:
+                await self.send_to_llm(None, query)
 
-    async def listen(self):
-        async for msg in self.client.messages:
-            await self.handle_message(msg)
+    @on_publish(TOPIC_TERMINAL_LLM_REQUEST, Conversation)
+    async def send_to_llm(self, msg, query: str):
+        logger.info(f"Conversation lengths: {len(self.conversation_history)}")
+        c = Conversation(content=query, conversation_history=self.conversation_history)
+        if not self.session_id:
+            self.session_id = c.session_id
+        else:
+            c.session_id = self.session_id
+        return c
 
     async def start(self):
-        await self.subscribe(TOPIC_COMPONENT_LLM_PROC_ANSWER)
+        await self.initialize_subscriptions()
         async with asyncio.TaskGroup() as tg:
             tg.create_task(self.ask_questions())
             tg.create_task(self.listen())
