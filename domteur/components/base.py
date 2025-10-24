@@ -311,3 +311,7 @@ async def start_cli_client(
             except asyncio.TimeoutError:
                 if shutdown_event.is_set():
                     break
+
+
+def get_registry_items():
+    return __contract_registry.items
