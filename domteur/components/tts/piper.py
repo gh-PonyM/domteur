@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import AsyncIterator
 from enum import Enum
 from pathlib import Path
@@ -15,10 +16,13 @@ from piper import PiperVoice
 from pydantic import BaseModel, Field
 
 from domteur.components.base import MQTTClient, on_receive
-from domteur.components.llm_processor.constants import TOPIC_COMPONENT_LLM_PROC_ANSWER
-from domteur.components.llm_processor.contracts import LLMResponse
-from domteur.components.tts.constants import TOPIC_PIPER_TTS_CONTROL
-from domteur.components.tts.contracts import TTSControl
+from domteur.components.tts.audio import StreamingTextQueue
+from domteur.components.tts.constants import (
+    COMPONENT_NAME,
+    TOPIC_PIPER_TTS_CONTROL,
+    TOPIC_PIPER_TTS_STREAM,
+)
+from domteur.components.tts.contracts import TTSControl, TTSStreamChunk
 
 if TYPE_CHECKING:
     from domteur.config import Settings
@@ -296,6 +300,8 @@ class PiperTTS(MQTTClient):
     """Text-to-speech component that converts text to speech using Piper TTS.
     This is meant to run in a separate thread if async is used"""
 
+    component_name = COMPONENT_NAME
+
     def __init__(
         self,
         client,
@@ -306,6 +312,10 @@ class PiperTTS(MQTTClient):
         super().__init__(client, name, shutdown_event=shutdown_event)
         self.config = settings.tts
         self.voice: PiperVoice | None = None
+        self._audio = AudioPlaybackManager()
+        self._shutdown_watcher: asyncio.Task | None = None
+        self._streaming_queue = StreamingTextQueue()
+        self._stream_processor_task: asyncio.Task | None = None
 
     @staticmethod
     def _prepare_text(text):
@@ -314,25 +324,131 @@ class PiperTTS(MQTTClient):
     @on_receive(TOPIC_PIPER_TTS_CONTROL, TTSControl)
     async def handle_control_event(self, msg, event: TTSControl):
         logger.info(f"voice control event received: {event.action}")
+        match event.action:
+            case "STOP" | "CLEAR_QUEUE":
+                await self._audio.stop()
+                await self._streaming_queue.clear_all()
+                if (
+                    self._stream_processor_task
+                    and not self._stream_processor_task.done()
+                ):
+                    self._stream_processor_task.cancel()
+            case "MUTE":
+                await self._audio.set_muted(True)
+            case "UNMUTE":
+                await self._audio.set_muted(False)
 
-    @on_receive(TOPIC_COMPONENT_LLM_PROC_ANSWER, LLMResponse)
-    async def handle_tts_request(self, event: LLMResponse) -> None:
-        """Handle LLM responses."""
-        text = self._prepare_text(event.content)
-        logger.info(f"Processing TTS request: {text[:50]}...")
+    @on_receive(TOPIC_PIPER_TTS_STREAM, TTSStreamChunk)
+    async def handle_streaming_chunk(self, msg, event: TTSStreamChunk) -> None:
+        """Handle streaming text chunks from LLM."""
+        logger.debug(
+            f"Received stream chunk: {event.content[:30]}... (priority={event.priority})"
+        )
 
+        # Check for priority interrupt
+        await self._streaming_queue.clear_lower_priority(event.priority)
+
+        # Add token to buffer
+        await self._streaming_queue.add_token(event.content, event.priority)
+
+        # Start stream processor if not running
+        if self._stream_processor_task is None or self._stream_processor_task.done():
+            self._stream_processor_task = asyncio.create_task(
+                self._process_streaming_queue()
+            )
+
+        # Mark complete if this is the final chunk
+        if event.message_type == "complete":
+            await self._streaming_queue.mark_complete()
+
+    # @on_receive(TOPIC_COMPONENT_LLM_PROC_ANSWER, LLMResponse)
+    # async def handle_tts_request(self, event: LLMResponse) -> None:
+    #     """Handle LLM responses."""
+    #     text = self._prepare_text(event.content)
+    #     logger.info(f"Processing TTS request: {text[:50]}...")
+    #
+    #     try:
+    #         await self._synthesize_and_play(text)
+    #         logger.info("TTS synthesis and playback completed")
+    #     except Exception as e:
+    #         logger.error(f"TTS synthesis failed: {e}")
+    #         # Send a mqtt message in the background by raising exception
+    #         raise
+
+    async def _process_streaming_queue(self) -> None:
+        """Process sentences from streaming queue and synthesize them."""
         try:
-            self._synthesize_and_play(text)
-            logger.info("TTS synthesis and playback completed")
-        except Exception as e:
-            logger.error(f"TTS synthesis failed: {e}")
-            # Send a mqtt message in the background by raising exception
+            while True:
+                sentence_data = await self._streaming_queue.get_next_sentence()
+                if sentence_data is None:
+                    await asyncio.sleep(0.1)
+                    continue
+
+                priority, sentence = sentence_data
+                logger.info(
+                    f"Processing streamed sentence: {sentence[:50]}... (priority={priority})"
+                )
+
+                try:
+                    await self._ensure_voice()
+                    cancel_evt = threading.Event()
+                    chunks = self._chunks_from_text(sentence, cancel_evt)
+                    accepted = await self._audio.request_play_stream(
+                        self.voice.config.sample_rate if self.voice else 22050,
+                        chunks,
+                        priority=priority,
+                    )
+                    if not accepted:
+                        logger.info(
+                            f"Streaming playback rejected (priority={priority})"
+                        )
+                except Exception as e:
+                    logger.error(f"Error processing streamed sentence: {e}")
+
+        except asyncio.CancelledError:
+            logger.info("Stream processor cancelled")
             raise
 
-    def _synthesize_and_play(self, text: str) -> None:
-        """Synthesize text to speech and play it directly."""
+    def _iter_chunks_sync(self, text: str, cancel_evt: threading.Event):
+        assert self.voice is not None
+        for chunk in self.voice.synthesize(text):
+            if cancel_evt.is_set():
+                break
+            yield chunk.audio_int16_array
+
+    async def _chunks_from_text(
+        self, text: str, cancel_evt: threading.Event
+    ) -> AsyncIterator[Any]:
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=16)
+
+        def worker():
+            try:
+                for a in self._iter_chunks_sync(text, cancel_evt):
+                    if cancel_evt.is_set():
+                        break
+                    # Block if queue is full until consumer catches up
+                    asyncio.run_coroutine_threadsafe(queue.put(a), loop).result()
+            except Exception as e:  # pragma: no cover - defensive
+                logger.error(f"Synthesis worker error: {e}")
+            finally:
+                asyncio.run_coroutine_threadsafe(queue.put(None), loop).result()
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                yield item
+        finally:
+            cancel_evt.set()
+            thread.join(timeout=1.0)
+
+    async def _ensure_voice(self) -> None:
         if not self.voice:
-            # maybe try except here?
             self.voice = load_voice(
                 voice_name=self.config.voice_model_name,
                 model_path=self.config.voice_model_path,
@@ -340,4 +456,29 @@ class PiperTTS(MQTTClient):
                 use_cuda=self.config.use_cuda,
             )
 
-        # TODO
+    async def _watch_shutdown(self) -> None:
+        if self.shutdown_event is None:
+            return
+        await self.shutdown_event.wait()
+        await self._audio.stop()
+        await self._streaming_queue.stop()
+        if self._stream_processor_task and not self._stream_processor_task.done():
+            self._stream_processor_task.cancel()
+
+    async def start(self):
+        await self.initialize_subscriptions()
+        if self._shutdown_watcher is None:
+            self._shutdown_watcher = asyncio.create_task(self._watch_shutdown())
+        await self.listen()
+
+    async def _synthesize_and_play(self, text: str) -> None:
+        await self._ensure_voice()
+        cancel_evt = threading.Event()
+        chunks = self._chunks_from_text(text, cancel_evt)
+        accepted = await self._audio.request_play_stream(
+            self.voice.config.sample_rate if self.voice else 22050,
+            chunks,
+            priority=PRIORITY_NORMAL,
+        )
+        if not accepted:
+            logger.info("Playback request rejected due to lower priority")
