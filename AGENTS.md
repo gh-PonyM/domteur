@@ -65,3 +65,39 @@ The example structure can be found in `config.example.yml`.
 - Config handling via pydantic-settings with YAML files
 - CLI entry point: `domteur.main:cli`
 - Event system spawns all components
+
+## MQTT Message iterator
+
+The aiomqtt message iterator per client is implemented as follows:
+
+```python
+class MessagesIterator:
+    """Dynamic view of the client's message queue."""
+
+    def __init__(self, client: Client) -> None:
+        self._client = client
+
+    def __aiter__(self) -> AsyncIterator[Message]:
+        return self
+
+    async def __anext__(self) -> Message:
+        # Wait until we either (1) receive a message or (2) disconnect
+        task = self._client._loop.create_task(self._client._queue.get())  # noqa: SLF001
+        try:
+            done, _ = await asyncio.wait(
+                (task, self._client._disconnected),  # noqa: SLF001
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        # If the asyncio.wait is cancelled, we must also cancel the queue task
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+        # When we receive a message, return it
+        if task in done:
+            return task.result()
+        # If we disconnect from the broker, stop the generator with an exception
+        task.cancel()
+        msg = "Disconnected during message iteration"
+        raise MqttError(msg)
+```
+The `async for msg in client.messages` loops over the `MessagesIterator`

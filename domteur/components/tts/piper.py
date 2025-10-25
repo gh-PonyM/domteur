@@ -1,11 +1,9 @@
 """Text-to-speech component using Piper TTS with direct audio output."""
-
-import tempfile
-import wave
+import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-import pyaudio
+import piper
 from loguru import logger
 from piper import PiperVoice
 from pydantic import BaseModel, Field
@@ -15,6 +13,7 @@ from domteur.components.llm_processor.constants import TOPIC_COMPONENT_LLM_PROC_
 from domteur.components.llm_processor.contracts import LLMResponse
 from domteur.components.tts.constants import TOPIC_PIPER_TTS_STOP
 from domteur.components.tts.contracts import StopVoiceSignal
+import sounddevice as sd
 
 if TYPE_CHECKING:
     from domteur.config import Settings
@@ -24,6 +23,7 @@ class PiperTTSConfig(BaseModel):
     """Configuration for text-to-speech engine."""
 
     type: Literal["piper"] = "piper"
+    # TODO: Make a list of the available voices
     voice_model_name: str = "de_DE-kerstin-low"
     volume: float = 1.0
     speed: float = 1.0
@@ -35,17 +35,11 @@ class PiperTTSConfig(BaseModel):
 
     @property
     def voice_model_path(self) -> Path:
-        return Path(f"{self.voice_model_name}.onnx")
+        return self.model_storage_path / f"{self.voice_model_name}.onnx"
 
     @property
     def voice_config_path(self) -> Path:
-        return Path(f"{self.voice_model_name}.json")
-
-
-def synthesize_to_file(voice, text: str, output_path: Path) -> None:
-    """Synthesize text to a WAV file."""
-    with wave.open(str(output_path), "wb") as wav_file:
-        voice.synthesize_wav(text, wav_file)
+        return self.model_storage_path / f"{self.voice_model_name}.json"
 
 
 def download_voice(voice_name: str, dl_dir: Path) -> None:
@@ -71,38 +65,6 @@ def download_voice(voice_name: str, dl_dir: Path) -> None:
     logger.info("Voice model downloaded successfully")
 
 
-def play_wav_file(
-    wav_path: Path, chunk_size: int, audio_interface: pyaudio.PyAudio | None = None
-) -> None:
-    """Play a WAV file using PyAudio."""
-    audio_interface = audio_interface or pyaudio.PyAudio()
-
-    # TODO: claude fucked up, it's way easier, and this only stutters
-    with wave.open(str(wav_path), "rb") as wav_file:
-        # Get audio parameters
-        sample_rate = wav_file.getframerate()
-        channels = wav_file.getnchannels()
-        sample_width = wav_file.getsampwidth()
-
-        # Open audio stream
-        stream = audio_interface.open(
-            format=audio_interface.get_format_from_width(sample_width),
-            channels=channels,
-            rate=sample_rate,
-            output=True,
-        )
-
-        try:
-            # Read and play audio data in chunks
-            data = wav_file.readframes(chunk_size)
-            while data:
-                stream.write(data)
-                data = wav_file.readframes(chunk_size)
-        finally:
-            stream.stop_stream()
-            stream.close()
-
-
 def load_voice(
     voice_name: str,
     model_path: Path,
@@ -120,6 +82,76 @@ def load_voice(
     return PiperVoice.load(model_path=model_path, use_cuda=use_cuda)
 
 
+def stream_play(voice: piper.PiperVoice, text: str):
+    """Streaming piper voice output directly to a sounddevice"""
+    stream = sd.OutputStream(
+        samplerate=voice.config.sample_rate, channels=1, dtype="int16"
+    )
+    stream.start()
+    try:
+        for chunk in voice.synthesize(text):
+            audio_array = chunk.audio_int16_array
+            stream.write(audio_array)
+    except Exception as err:
+        logger.error(f"Exception during audio streaming: {err}")
+    finally:
+        stream.stop()
+        stream.close()
+
+
+class AudioPlayer:
+    def __init__(self):
+        self._task: asyncio.Task | None = None
+        self._stream: sd.OutputStream | None = None
+
+    async def play(self, voice: piper.PiperVoice, text: str) -> None:
+        if self._task and not self._task.done():
+            await self.cancel()
+
+        self._task = asyncio.create_task(self._play_async(voice, text))
+        try:
+            await self._task
+        except asyncio.CancelledError:
+            logger.info("Audio playback cancelled")
+            raise
+
+    async def _play_async(self, voice: piper.PiperVoice, text: str) -> None:
+        loop = asyncio.get_event_loop()
+        self._stream = sd.OutputStream(
+            samplerate=voice.config.sample_rate, channels=1, dtype="int16"
+        )
+        self._stream.start()
+
+        try:
+            for chunk in voice.synthesize(text):
+                if self._task and self._task.cancelled():
+                    break
+                audio_array = chunk.audio_int16_array
+                await loop.run_in_executor(None, self._stream.write, audio_array)
+        except asyncio.CancelledError:
+            logger.info("Audio synthesis cancelled")
+            raise
+        except Exception as err:
+            logger.error(f"Exception during audio streaming: {err}")
+        finally:
+            if self._stream:
+                self._stream.stop()
+                self._stream.close()
+                self._stream = None
+
+    async def cancel(self) -> None:
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        if self._stream:
+            self._stream.stop()
+            self._stream.close()
+            self._stream = None
+
+
 class PiperTTS(MQTTClient):
     """Text-to-speech component that converts text to speech using Piper TTS.
     This is meant to run in a separate thread if async is used"""
@@ -128,14 +160,14 @@ class PiperTTS(MQTTClient):
         super().__init__(client, name)
         self.config = settings.tts
         self.voice: PiperVoice | None = None
-        self.audio_interface: pyaudio.PyAudio | None = None
 
-    def _prepare_text(self, text):
+    @staticmethod
+    def _prepare_text(text):
         return text
 
     @on_receive(TOPIC_PIPER_TTS_STOP, StopVoiceSignal)
-    async def stop_playing(self, msg):
-        pass
+    async def stop_playing(self, msg, event: StopVoiceSignal):
+        logger.info(f"Stop voice event received: {event}")
 
     @on_receive(TOPIC_COMPONENT_LLM_PROC_ANSWER, LLMResponse)
     async def handle_tts_request(self, event: LLMResponse) -> None:
@@ -149,6 +181,8 @@ class PiperTTS(MQTTClient):
             logger.info("TTS synthesis and playback completed")
         except Exception as e:
             logger.error(f"TTS synthesis failed: {e}")
+            # Send a mqtt message in the background by raising exception
+            raise
 
     def _synthesize_and_play(self, text: str) -> None:
         """Synthesize text to speech and play it directly."""
@@ -161,29 +195,4 @@ class PiperTTS(MQTTClient):
                 use_cuda=self.config.use_cuda,
             )
 
-        # Create a temporary WAV file
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
-            temp_path = Path(temp_file.name)
-
-        try:
-            # Synthesize speech to WAV file
-            synthesize_to_file(self.voice, text, temp_path)
-
-            # Play the WAV file
-            if not self.audio_interface:
-                self.audio_interface = pyaudio.PyAudio()
-            play_wav_file(temp_path, self.config.chunk_size, self.audio_interface)
-
-        finally:
-            # Clean up temporary file
-            if temp_path.exists():
-                temp_path.unlink()
-
-    def _cleanup(self) -> None:
-        """Clean up resources."""
-        if self.audio_interface:
-            self.audio_interface.terminate()
-            self.audio_interface = None
-
-        self.voice = None
-        logger.info("TTS engine cleaned up")
+        # TODO

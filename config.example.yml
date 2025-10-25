@@ -27,7 +27,7 @@ database:
 # Text-to-Speech Configuration
 tts:
   engine: "piper"
-#  voice_model_name:
+  voice_model_name: en_US-bryce-medium
 #  voice_config_path: "en_US-lessac-medium.onnx.json"
   volume: 1.0
   speed: 1.0
