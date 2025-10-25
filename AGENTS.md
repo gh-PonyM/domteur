@@ -269,3 +269,62 @@ asyncio.run(main())
 - Immediate processing of high-priority messages
 - Graceful handling of streaming session interruptions
 - Muted state maintains processing without audio output
+
+## TTS Implementation Analysis & Guidance
+
+### Findings
+- Incomplete PiperTTS: voice loading exists; no streaming/playback wiring.
+- AudioPlaybackManager is async, writes via executor (good). Synthesis remains blocking.
+- No shutdown propagation into component/audio manager.
+- Control topic exists (TTSControl) but not implemented.
+- audio.py is empty; suitable for streaming buffer utilities if needed.
+
+### Recommendation
+- Use hybrid model: async orchestration; blocking I/O (piper synth, sounddevice writes) via executors/threads.
+- Keep AudioPlaybackManager async; wrap Piper synth in an async generator using a worker thread.
+- Pass shutdown_event through the component to playback manager; stop cleanly on shutdown/STOP.
+- Implement control handling (STOP, MUTE, UNMUTE, CLEAR_QUEUE).
+- Optionally prioritize control via aiomqtt queue_type.
+
+### Planned Changes
+- Pass shutdown_event into component instance and manager.
+- Add async text→audio chunk generator (background thread around PiperVoice.synthesize).
+- Wire PiperTTS to AudioPlaybackManager.request_play_stream(...) with priorities.
+- Implement control handler for STOP/MUTE/UNMUTE/CLEAR_QUEUE.
+- Add streaming handler for TTSStreamChunk with sentence buffering and priority-aware interruption.
+- Optional: CustomPriorityQueue for MQTT to boost control priority.
+
+### Key Code Sketches
+- Pass shutdown to components
+  - domteur/components/base.py: extend MQTTClient.__init__(..., shutdown_event: asyncio.Event | None = None) and store self.shutdown_event.
+  - domteur/components/base.start_cli_client(...): construct instance = mqtt_client(client, shutdown_event=shutdown_event, ...).
+  - In PiperTTS, spawn a watcher: asyncio.create_task(self._watch_shutdown()) that awaits shutdown_event and calls await self._audio.stop().
+
+- Async synthesis to chunks
+  - Ensure voice loads once.
+  - Implement:
+    - def _iter_chunks_sync(self, text: str, cancel_evt: threading.Event): yield from self.voice.synthesize(text) while not cancel_evt.is_set().
+    - async def _chunks_from_text(self, text: str, cancel_evt) -> AsyncIterator[np.ndarray]: run sync iterator in a thread, enqueue to an asyncio.Queue, and async-yield; stop on cancel/completion.
+
+- Wire playback
+  - In handle_tts_request: build async chunk iterator via _chunks_from_text(), then:
+    - accepted = await self._audio.request_play_stream(self.voice.config.sample_rate, chunks, priority=PRIORITY_NORMAL)
+    - If not accepted (lower priority), drop.
+
+- Control handling
+  - @on_receive(TOPIC_PIPER_TTS_CONTROL, TTSControl)
+    - STOP or CLEAR_QUEUE: await self._audio.stop().
+    - MUTE: await self._audio.set_muted(True).
+    - UNMUTE: await self._audio.set_muted(False).
+
+- Streaming tokens (optional in first pass)
+  - Add TTSStreamChunk handler with sentence buffering and priority-aware interruption.
+
+### Async vs Sync Analysis
+- Full sync player in a background thread conflicts with "All functions must be async" and complicates cancellation/priority propagation.
+- The hybrid approach keeps async orchestration, contains blocking synthesis and device writes in threads, and integrates clean shutdown/interrupts. Recommended.
+
+### Edge Cases
+- Muted: still drain chunk iterators but don't open the audio stream.
+- Interrupts: propagate cancel to synthesis thread via event; ignore remaining chunks.
+- Error handling: keep logging around stream open/write and synthesis, revert to IDLE/MUTED states on errors.
