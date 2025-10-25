@@ -1,8 +1,12 @@
 """Text-to-speech component using Piper TTS with direct audio output."""
 
+from __future__ import annotations
+
 import asyncio
+from collections.abc import AsyncIterator
+from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import piper
 import sounddevice as sd
@@ -83,6 +87,7 @@ def load_voice(
     return PiperVoice.load(model_path=model_path, use_cuda=use_cuda)
 
 
+# This is working!
 def stream_play(voice: piper.PiperVoice, text: str):
     """Streaming piper voice output directly to a sounddevice"""
     stream = sd.OutputStream(
@@ -100,64 +105,198 @@ def stream_play(voice: piper.PiperVoice, text: str):
         stream.close()
 
 
-class AudioPlayer:
-    def __init__(self):
+class AudioState(str, Enum):
+    IDLE = "IDLE"
+    STREAMING = "STREAMING"
+    PLAYING = "PLAYING"  # Kept for compatibility; maps to active stream writes
+    MUTED = "MUTED"
+
+
+# Audio chunks are typically numpy int16 arrays from Piper; accept any buffer-like
+# TODO: fix type hint and allow only one
+AudioChunk = Any
+
+# Priority levels (lower is higher priority)
+PRIORITY_CRITICAL = 0
+PRIORITY_HIGH = 1
+PRIORITY_NORMAL = 2
+PRIORITY_LOW = 3
+
+
+class AudioPlaybackManager:
+    """Priority-aware audio playback with mute and immediate stop.
+
+    Notes
+    - Lower integer means higher priority (0 is CRITICAL).
+    - Only one active playback is handled at a time.
+    - Same/low priority requests can be rejected here; upstream queue
+      should typically ensure FIFO for same priority.
+    """
+
+    def __init__(self) -> None:
+        self._state: AudioState = AudioState.IDLE
+        self._muted: bool = False
+        self._current_priority: int | None = None
         self._task: asyncio.Task | None = None
         self._stream: sd.OutputStream | None = None
+        self._sample_rate: int | None = None
+        self._stop_event = asyncio.Event()
+        self._lock = asyncio.Lock()
 
-    async def play(self, voice: piper.PiperVoice, text: str) -> None:
-        if self._task and not self._task.done():
-            await self.cancel()
+    @property
+    def state(self) -> AudioState:
+        return self._state
 
-        self._task = asyncio.create_task(self._play_async(voice, text))
-        try:
-            await self._task
-        except asyncio.CancelledError:
-            logger.info("Audio playback cancelled")
-            raise
+    @property
+    def muted(self) -> bool:
+        return self._muted
 
-    async def _play_async(self, voice: piper.PiperVoice, text: str) -> None:
-        loop = asyncio.get_event_loop()
-        self._stream = sd.OutputStream(
-            samplerate=voice.config.sample_rate, channels=1, dtype="int16"
-        )
-        self._stream.start()
+    @property
+    def current_priority(self) -> int | None:
+        return self._current_priority
 
-        try:
-            for chunk in voice.synthesize(text):
-                if self._task and self._task.cancelled():
-                    break
-                audio_array = chunk.audio_int16_array
-                await loop.run_in_executor(None, self._stream.write, audio_array)
-        except asyncio.CancelledError:
-            logger.info("Audio synthesis cancelled")
-            raise
-        except Exception as err:
-            logger.error(f"Exception during audio streaming: {err}")
-        finally:
-            if self._stream:
+    async def set_muted(self, muted: bool) -> None:
+        async with self._lock:
+            if self._muted == muted:
+                return
+            self._muted = muted
+            if muted:
+                self._state = AudioState.MUTED
+                # Keep draining any active stream without audio output
+                await self._close_stream()
+            else:
+                # When unmuting, the playback loop will lazily re-open the stream
+                # on the next chunk write.
+                if self._state == AudioState.MUTED:
+                    # If we are not actively streaming data, return to IDLE
+                    if not self._task or self._task.done():
+                        self._state = AudioState.IDLE
+
+    async def stop(self) -> None:
+        """Immediately stop any active playback and reset state."""
+        async with self._lock:
+            self._stop_event.set()
+            if self._task and not self._task.done():
+                self._task.cancel()
+            await self._close_stream()
+            self._task = None
+            self._current_priority = None
+            self._sample_rate = None
+            self._state = AudioState.MUTED if self._muted else AudioState.IDLE
+            # Clear stop flag so future sessions can start
+            self._stop_event = asyncio.Event()
+
+    async def request_play_stream(
+        self,
+        sample_rate: int,
+        chunks: AsyncIterator[AudioChunk],
+        priority: int,
+    ) -> bool:
+        """Request to start streaming playback.
+
+        Returns True if accepted. Rejects if lower priority than current.
+        Higher priority interrupts current playback.
+        """
+        async with self._lock:
+            if self._current_priority is not None and priority > self._current_priority:
+                # Lower priority than current; reject
+                return False
+
+            # Interrupt current playback if any
+            if self._task and not self._task.done():
+                logger.debug(
+                    f"Interrupting playback: new priority {priority} replaces {self._current_priority}"
+                )
+                self._stop_event.set()
+                self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    await self._close_stream()
+
+            # Prepare new session
+            self._sample_rate = sample_rate
+            self._current_priority = priority
+            self._stop_event = asyncio.Event()
+            self._state = AudioState.MUTED if self._muted else AudioState.STREAMING
+
+            # Launch playback loop
+            self._task = asyncio.create_task(self._playback_loop(chunks))
+            return True
+
+    async def _ensure_stream(self) -> None:
+        if self._muted:
+            return
+        if self._stream is None:
+            if self._sample_rate is None:
+                raise RuntimeError("Sample rate not set before opening stream")
+            self._stream = sd.OutputStream(
+                samplerate=self._sample_rate, channels=1, dtype="int16"
+            )
+            self._stream.start()
+            self._state = AudioState.PLAYING
+
+    async def _close_stream(self) -> None:
+        if self._stream is not None:
+            try:
                 self._stream.stop()
+            except Exception as e:  # pragma: no cover - defensive
+                logger.warning(f"Error stopping audio stream: {e}")
+            try:
                 self._stream.close()
+            except Exception as e:  # pragma: no cover - defensive
+                logger.warning(f"Error closing audio stream: {e}")
+            finally:
                 self._stream = None
 
-    async def cancel(self) -> None:
-        if self._task and not self._task.done():
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-        if self._stream:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+    async def _playback_loop(self, chunks: AsyncIterator[AudioChunk]) -> None:
+        loop = asyncio.get_running_loop()
+        try:
+            async for chunk in chunks:
+                if self._stop_event.is_set():
+                    break
+
+                # Lazily open stream when needed and not muted
+                if not self._muted:
+                    await self._ensure_stream()
+
+                try:
+                    if self._muted:
+                        # Drain without audio output
+                        continue
+                    stream = self._stream
+                    if stream is None:
+                        # If we became muted after ensure, just skip
+                        continue
+                    # Use executor to avoid blocking the event loop on writes
+                    await loop.run_in_executor(None, stream.write, chunk)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as err:
+                    logger.error(f"Exception during audio write: {err}")
+                    break
+        except asyncio.CancelledError:
+            logger.info("Audio playback loop cancelled")
+            raise
+        except Exception as err:
+            logger.error(f"Playback loop error: {err}")
+        finally:
+            async with self._lock:
+                await self._close_stream()
+                # Transition back to state depending on mute
+                self._state = AudioState.MUTED if self._muted else AudioState.IDLE
+                self._task = None
+                self._current_priority = None
+                self._sample_rate = None
 
 
 class PiperTTS(MQTTClient):
     """Text-to-speech component that converts text to speech using Piper TTS.
     This is meant to run in a separate thread if async is used"""
 
-    def __init__(self, client, settings: "Settings", name: str | None = None):
+    def __init__(self, client, settings: Settings, name: str | None = None):
         super().__init__(client, name)
         self.config = settings.tts
         self.voice: PiperVoice | None = None
