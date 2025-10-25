@@ -152,9 +152,15 @@ class MQTTClient:
 
     component_name: str = "template"
 
-    def __init__(self, client: Client, name: str | None = None):
+    def __init__(
+        self,
+        client: Client,
+        name: str | None = None,
+        shutdown_event: asyncio.Event | None = None,
+    ):
         self.name = name if name else self.default_name
         self.client = client
+        self.shutdown_event = shutdown_event
         logger.info(f"Component {self.name} initialized")
 
     async def publish(self, topic: str, payload: MessagePayload | Error) -> None:
@@ -264,7 +270,9 @@ async def start_cli_client(
     while not shutdown_event.is_set():
         try:
             async with client:
-                instance = mqtt_client(client, **client_kwargs)
+                instance = mqtt_client(
+                    client, shutdown_event=shutdown_event, **client_kwargs
+                )
 
                 # Create tasks for client and shutdown monitoring
                 client_task = asyncio.create_task(instance.start())

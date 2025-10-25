@@ -296,8 +296,14 @@ class PiperTTS(MQTTClient):
     """Text-to-speech component that converts text to speech using Piper TTS.
     This is meant to run in a separate thread if async is used"""
 
-    def __init__(self, client, settings: Settings, name: str | None = None):
-        super().__init__(client, name)
+    def __init__(
+        self,
+        client,
+        settings: Settings,
+        name: str | None = None,
+        shutdown_event: asyncio.Event | None = None,
+    ):
+        super().__init__(client, name, shutdown_event=shutdown_event)
         self.config = settings.tts
         self.voice: PiperVoice | None = None
 

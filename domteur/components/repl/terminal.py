@@ -18,8 +18,14 @@ from domteur.config import Settings
 class LLMTerminalChat(MQTTClient):
     component_name = COMPONENT_NAME
 
-    def __init__(self, client, settings: Settings, name: str | None = None):
-        super().__init__(client, name)
+    def __init__(
+        self,
+        client,
+        settings: Settings,
+        name: str | None = None,
+        shutdown_event: asyncio.Event | None = None,
+    ):
+        super().__init__(client, name, shutdown_event=shutdown_event)
         self.conversation_history: list[HistoryEntry] = []
         self.session_id = None
         self.settings = settings
