@@ -1,16 +1,11 @@
 """Chat commands for domteur CLI."""
 
 import typer
-from loguru import logger
 
 from domteur.cli.base import sync_run_client
 from domteur.components.repl.terminal import LLMTerminalChat
 from domteur.components.tts.piper import PiperTTS
 from domteur.config import Settings
-
-
-import piper
-import sounddevice as sd
 
 # Create standalone chat CLI
 chat_cli = typer.Typer(name="chat", help="Interactive chat with LLM")
@@ -28,13 +23,10 @@ def repl(ctx: typer.Context, broker_host: str | None = None):
     sync_run_client(cfg, LLMTerminalChat)
 
 
-
 @chat_cli.command()
 def piper(ctx: typer.Context):
-
     cfg: Settings = ctx.meta["cfg"]
     sync_run_client(cfg, PiperTTS)
-
 
 
 @chat_cli.command()
