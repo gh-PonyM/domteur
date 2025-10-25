@@ -2,8 +2,3 @@ COMPONENT_NAME = "piper_tts"
 TOPIC_PIPER_TTS = f"component/{COMPONENT_NAME}/+"
 TOPIC_PIPER_TTS_CONTROL = f"{TOPIC_PIPER_TTS}/control"
 TOPIC_PIPER_TTS_PLAY = f"{TOPIC_PIPER_TTS}/play"
-# Priority levels (lower is higher priority)
-PRIORITY_CRITICAL = 0
-PRIORITY_HIGH = 1
-PRIORITY_NORMAL = 2
-PRIORITY_LOW = 3

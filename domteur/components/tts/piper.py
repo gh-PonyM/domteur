@@ -1,9 +1,11 @@
 """Text-to-speech component using Piper TTS with direct audio output."""
+
 import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import piper
+import sounddevice as sd
 from loguru import logger
 from piper import PiperVoice
 from pydantic import BaseModel, Field
@@ -11,9 +13,8 @@ from pydantic import BaseModel, Field
 from domteur.components.base import MQTTClient, on_receive
 from domteur.components.llm_processor.constants import TOPIC_COMPONENT_LLM_PROC_ANSWER
 from domteur.components.llm_processor.contracts import LLMResponse
-from domteur.components.tts.constants import TOPIC_PIPER_TTS_STOP
-from domteur.components.tts.contracts import StopVoiceSignal
-import sounddevice as sd
+from domteur.components.tts.constants import TOPIC_PIPER_TTS_CONTROL
+from domteur.components.tts.contracts import TTSControl
 
 if TYPE_CHECKING:
     from domteur.config import Settings
@@ -165,9 +166,9 @@ class PiperTTS(MQTTClient):
     def _prepare_text(text):
         return text
 
-    @on_receive(TOPIC_PIPER_TTS_STOP, StopVoiceSignal)
-    async def stop_playing(self, msg, event: StopVoiceSignal):
-        logger.info(f"Stop voice event received: {event}")
+    @on_receive(TOPIC_PIPER_TTS_CONTROL, TTSControl)
+    async def handle_control_event(self, msg, event: TTSControl):
+        logger.info(f"voice control event received: {event.action}")
 
     @on_receive(TOPIC_COMPONENT_LLM_PROC_ANSWER, LLMResponse)
     async def handle_tts_request(self, event: LLMResponse) -> None:
@@ -175,7 +176,6 @@ class PiperTTS(MQTTClient):
         text = self._prepare_text(event.content)
         logger.info(f"Processing TTS request: {text[:50]}...")
 
-        # TODO: put this in a background thread and cancel it if a message arrives
         try:
             self._synthesize_and_play(text)
             logger.info("TTS synthesis and playback completed")
