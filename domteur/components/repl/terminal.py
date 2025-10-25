@@ -5,19 +5,16 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
 
 from domteur.components.base import MQTTClient, on_publish, on_receive
-from domteur.components.llm_processor.constants import TOPIC_COMPONENT_LLM_PROC_ANSWER
 from domteur.components.llm_processor.contracts import (
     Conversation,
     HistoryEntry,
     LLMResponse,
 )
-from domteur.components.repl.constants import COMPONENT_NAME, TOPIC_TERMINAL_LLM_REQUEST
+from domteur.components.tts.contracts import TTSControl, TTSStreamChunk
 from domteur.config import Settings
 
 
 class LLMTerminalChat(MQTTClient):
-    component_name = COMPONENT_NAME
-
     def __init__(
         self,
         client,
@@ -30,7 +27,15 @@ class LLMTerminalChat(MQTTClient):
         self.session_id = None
         self.settings = settings
 
-    @on_receive(TOPIC_COMPONENT_LLM_PROC_ANSWER, LLMResponse)
+    @on_publish("output", TTSStreamChunk, event="play")
+    async def send_tts_single_text(self, msg, query, priority: int = 2):
+        return TTSStreamChunk(content=query, message_type="complete", priority=priority)
+
+    @on_publish("tts_control", TTSControl)
+    def send_tts_control(self, msg, action):
+        return TTSControl(action=action)
+
+    @on_receive("LLMProcessor", "output", LLMResponse, "complete")
     async def handle_llm_message(self, msg, response: LLMResponse):
         self.conversation_history.extend(
             [
@@ -46,10 +51,28 @@ class LLMTerminalChat(MQTTClient):
         while True:
             with patch_stdout():
                 query = await session.prompt_async("💬 You: ")
-            if query:
+                query = query.strip()
+            if not query:
+                continue
+            if query.startswith("/speak"):
+                await self.send_tts_single_text(
+                    None, query.replace("/speak", "", 1), priority=2
+                )
+            elif query.startswith("/interrupt"):
+                await self.send_tts_single_text(
+                    None, "You wanted me to stop", 1, priority=1
+                )
+            elif query.startswith("/stop"):
+                logger.info("Send audio stop")
+                await self.send_tts_control(None, action="STOP")
+            elif query.startswith("/mute"):
+                logger.info("Send audio mute")
+                await self.send_tts_control(None, action="MUTE")
+            else:
+                logger.info("Send to llm")
                 await self.send_to_llm(None, query)
 
-    @on_publish(TOPIC_TERMINAL_LLM_REQUEST, Conversation)
+    @on_publish("llm_chat", Conversation)
     async def send_to_llm(self, msg, query: str):
         logger.info(f"Conversation lengths: {len(self.conversation_history)}")
         c = Conversation(content=query, conversation_history=self.conversation_history)

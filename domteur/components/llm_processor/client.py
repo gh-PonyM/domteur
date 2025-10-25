@@ -7,15 +7,10 @@ from langchain_ollama import OllamaLLM
 from loguru import logger
 
 from domteur.components.base import MQTTClient, on_publish, on_receive
-from domteur.components.llm_processor.constants import (
-    COMPONENT_NAME,
-    TOPIC_COMPONENT_LLM_PROC_ANSWER,
-)
 from domteur.components.llm_processor.contracts import (
     Conversation,
     LLMResponse,
 )
-from domteur.components.repl.constants import TOPIC_TERMINAL_LLM_REQUEST
 from domteur.config import BaseLLMProvider, OllamaProvider, Settings
 
 MessagesT = list[AIMessage | HumanMessage | SystemMessage]
@@ -23,8 +18,6 @@ MessagesT = list[AIMessage | HumanMessage | SystemMessage]
 
 class LLMProcessor(MQTTClient):
     """LLM processor component that handles AI conversations using LangChain."""
-
-    component_name = COMPONENT_NAME
 
     def __init__(
         self,
@@ -60,7 +53,7 @@ class LLMProcessor(MQTTClient):
 
     # Auto-discovery methods will handle subscriptions and message routing
 
-    @on_receive(TOPIC_TERMINAL_LLM_REQUEST, Conversation)
+    @on_receive("LLMTerminalChat", "llm_chat", Conversation)
     async def handle_user_input(self, msg, event: Conversation) -> None:
         """Handle user input events and generate LLM responses."""
         user_message = event.content
@@ -94,10 +87,13 @@ class LLMProcessor(MQTTClient):
             model=self.current_provider.model_id,
             original_message=user_message,
         )
-        await self.send_answer(msg, messages, response_event)
+        await self.send_answer_no_stream(msg, messages, response_event)
 
-    @on_publish(TOPIC_COMPONENT_LLM_PROC_ANSWER, LLMResponse)
-    async def send_answer(self, msg, messages: MessagesT, pre_response: LLMResponse):
+    @on_publish("output", LLMResponse, event="complete")
+    async def send_answer_no_stream(
+        self, msg, messages: MessagesT, pre_response: LLMResponse
+    ):
+        """Send a complete, non-streaming answer"""
         if not self.current_provider:
             return pre_response
         llm = self.llm_providers[self.current_provider.model_id]

@@ -17,6 +17,12 @@ from aiomqtt import Client
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from domteur.constants import APP_TOPIC_ROOT
+
+
+def class_name_to_id(name: str):
+    return name
+
 
 @dataclass
 class ContractMap:
@@ -25,6 +31,10 @@ class ContractMap:
     component: str
     method_name: str
     type: Literal["pub", "sub"]
+
+    @property
+    def component_id(self):
+        return class_name_to_id(self.component)
 
 
 @dataclass
@@ -36,9 +46,28 @@ class ContractRegistry:
 __contract_registry = ContractRegistry(items=[])
 
 
-def on_receive(topic: str, payload_contract: type["MessagePayload"]):
+def add_component_instance(topic: str, instance_id: str):
+    return topic.replace("+", instance_id, 1)
+
+
+def to_topic(component: str, domain: str, event: str | None = None):
+    """Naming scheme: app/<app_name>/<component>/<instance>/<domain>/<event>"""
+    topic = f"{APP_TOPIC_ROOT}/{component}/+/{domain}"
+    if event:
+        topic = f"{topic}/{event}"
+    return topic
+
+
+def on_receive(
+    component: str,
+    domain: str,
+    payload_contract: type["MessagePayload"],
+    event: str | None = None,
+):
     """Decorator for registering message receive handlers with automatic validation."""
     global __contract_registry
+
+    topic = to_topic(component, domain, event)
 
     def decorator(func: Callable):
         @wraps(func)
@@ -57,7 +86,7 @@ def on_receive(topic: str, payload_contract: type["MessagePayload"]):
 
             # Validate against contract
             try:
-                event = payload_contract.model_validate(data)
+                data = payload_contract.model_validate(data)
             except pydantic.ValidationError as err:
                 await self._send_error_response(
                     session_id=data.get("session_id", "unknown"),
@@ -67,7 +96,7 @@ def on_receive(topic: str, payload_contract: type["MessagePayload"]):
                 return
 
             # Call original function with full msg and validated event
-            await func(self, msg, event)
+            await func(self, msg, data)
 
         # Store handler info directly on the function for instance discovery
         wrapper._mqtt_handler_topic = topic
@@ -90,11 +119,22 @@ def on_receive(topic: str, payload_contract: type["MessagePayload"]):
     return decorator
 
 
-def on_publish(topic: str, payload_contract: type["MessagePayload"]):
+def on_publish(
+    domain: str,
+    payload_contract: type["MessagePayload"],
+    event: str | None = None,
+    component: str | None = None,
+):
     """Decorator for registering message publish handlers."""
     global __contract_registry
 
     def decorator(func: Callable):
+        nonlocal component
+        cls_name = func.__qualname__.split(".")[0]
+        if not component:
+            component = class_name_to_id(cls_name)
+        topic = to_topic(component, domain, event)
+
         @wraps(func)
         async def wrapper(self, msg: aiomqtt.Message | None, *args, **kwargs):
             try:
@@ -106,17 +146,15 @@ def on_publish(topic: str, payload_contract: type["MessagePayload"]):
                     source_topic=str(msg.topic) if msg else None,
                 )
                 return
-            # TODO: proper identification if what the component_id of the instance is
-            await self.publish(topic.replace("+", self.name), response)
+
+            await self.publish(add_component_instance(topic, self.name), response)
 
         # Register the contract in the global registry
         __contract_registry.items.append(
             ContractMap(
                 topic=topic,
                 contract=payload_contract,
-                component=func.__qualname__.split(".")[0]
-                if "." in func.__qualname__
-                else "unknown",
+                component=cls_name if "." in func.__qualname__ else "unknown",
                 method_name=func.__name__,
                 type="pub",
             )
@@ -150,8 +188,6 @@ class Error(MessagePayload):
 class MQTTClient:
     """Base class for all mqtt client in the event-driven system."""
 
-    component_name: str = "template"
-
     def __init__(
         self,
         client: Client,
@@ -175,20 +211,21 @@ class MQTTClient:
     def default_name(self):
         return f"{self.__class__.__name__.lower()}{random.randint(1000, 9999)}"
 
-    @classmethod
-    def _component_topic(cls):
-        assert cls.component_name != "template", (
-            "Please change the classes component_name attribute"
-        )
-        return f"component/{cls.component_name}"
+    @property
+    def component_name(self):
+        return class_name_to_id(self.__class__.__name__)
+
+    @property
+    def _component_topic(self):
+        return f"component/{self.component_name}"
 
     @property
     def instance_topic(self):
-        return f"{self._component_topic()}/{self.name}"
+        return f"{self._component_topic}/{self.name}"
 
     @property
     def error_topic(self):
-        """The default topic for each component to send a standardized error message"""
+        """The default topic for each component to send a standardized error message in the domain error"""
         return f"{self.instance_topic}/error"
 
     @staticmethod

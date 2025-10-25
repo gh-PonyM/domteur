@@ -16,12 +16,8 @@ from piper import PiperVoice
 from pydantic import BaseModel, Field
 
 from domteur.components.base import MQTTClient, on_receive
+from domteur.components.llm_processor.contracts import LLMResponse
 from domteur.components.tts.audio import StreamingTextQueue
-from domteur.components.tts.constants import (
-    COMPONENT_NAME,
-    TOPIC_PIPER_TTS_CONTROL,
-    TOPIC_PIPER_TTS_STREAM,
-)
 from domteur.components.tts.contracts import TTSControl, TTSStreamChunk
 
 if TYPE_CHECKING:
@@ -300,8 +296,6 @@ class PiperTTS(MQTTClient):
     """Text-to-speech component that converts text to speech using Piper TTS.
     This is meant to run in a separate thread if async is used"""
 
-    component_name = COMPONENT_NAME
-
     def __init__(
         self,
         client,
@@ -321,7 +315,7 @@ class PiperTTS(MQTTClient):
     def _prepare_text(text):
         return text
 
-    @on_receive(TOPIC_PIPER_TTS_CONTROL, TTSControl)
+    @on_receive("LLMTerminalChat", "tts_control", TTSControl)
     async def handle_control_event(self, msg, event: TTSControl):
         logger.info(f"voice control event received: {event.action}")
         match event.action:
@@ -338,8 +332,16 @@ class PiperTTS(MQTTClient):
             case "UNMUTE":
                 await self._audio.set_muted(False)
 
-    @on_receive(TOPIC_PIPER_TTS_STREAM, TTSStreamChunk)
-    async def handle_streaming_chunk(self, msg, event: TTSStreamChunk) -> None:
+    @on_receive("LLMProcessor", "output", LLMResponse, "complete")
+    async def play_llm_output(self, msg, event: LLMResponse):
+        chunk = TTSStreamChunk(content=event.content, message_type="complete")
+        await self.handle_streaming_chunk(chunk)
+
+    @on_receive("LLMTerminalChat", "output", TTSStreamChunk, "play")
+    async def speak_terminal_user_query(self, msg, event: TTSStreamChunk):
+        await self.handle_streaming_chunk(event)
+
+    async def handle_streaming_chunk(self, event: TTSStreamChunk) -> None:
         """Handle streaming text chunks from LLM."""
         logger.debug(
             f"Received stream chunk: {event.content[:30]}... (priority={event.priority})"

@@ -119,23 +119,45 @@ def list_components():
     """List the registry of components"""
     from rich.console import Console
     from rich.table import Table
+    from rich.text import Text
 
     from domteur.components.base import get_registry_items
 
-    items = get_registry_items()
+    items = sorted(get_registry_items(), key=lambda x: x.topic)
 
     table = Table(title="Component Registry")
     table.add_column("Component", style="cyan")
-    table.add_column("Type", style="magenta")
-    table.add_column("Topic", style="green")
-    table.add_column("Method", style="yellow")
+    table.add_column("Topic")
+    table.add_column("Method", style="white")
     table.add_column("Contract", style="blue")
 
     for item in items:
+        parts = item.topic.split("/")
+        colorized_topic = Text()
+        type_text = Text(
+            item.type, style="bright_green" if item.type == "pub" else "bright_magenta"
+        )
+        if len(parts) >= 5:
+            colorized_topic.append(type_text)
+            colorized_topic.append(" | ", style="dim white")
+            colorized_topic.append(parts[0], style="dim white")
+            colorized_topic.append("/", style="dim white")
+            colorized_topic.append(parts[1], style="dim white")
+            colorized_topic.append("/", style="dim white")
+            colorized_topic.append(parts[2], style="red")
+            colorized_topic.append("/", style="dim white")
+            colorized_topic.append(parts[3], style="bright_yellow")
+            colorized_topic.append("/", style="dim white")
+            colorized_topic.append(parts[4], style="yellow")
+            if len(parts) > 5:
+                colorized_topic.append("/", style="dim white")
+                colorized_topic.append("/".join(parts[5:]), style="bright_green")
+        else:
+            colorized_topic.append(item.topic, style="white")
+
         table.add_row(
             item.component,
-            item.type,
-            item.topic,
+            colorized_topic,
             item.method_name,
             item.contract.__name__,
         )
