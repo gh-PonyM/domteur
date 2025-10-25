@@ -1,3 +1,5 @@
+import asyncio
+
 import aiomqtt
 
 from domteur.components.base import MQTTClient, start_cli_client
@@ -8,6 +10,7 @@ def sync_run_client(
     cfg: Settings,
     component: type[MQTTClient],
     component_name: str | None = None,
+    queue_type: type[asyncio.Queue[aiomqtt.Message]] | None = None,
     **client_kwargs,
 ):
     import asyncio
@@ -23,7 +26,9 @@ def sync_run_client(
         shutdown_event.set()
 
     async def main():
-        c = aiomqtt.Client(hostname=cfg.broker_host, port=cfg.broker_port)
+        c = aiomqtt.Client(
+            hostname=cfg.broker_host, port=cfg.broker_port, queue_type=queue_type
+        )
         await start_cli_client(
             client=c,
             mqtt_client=component,
