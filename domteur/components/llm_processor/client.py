@@ -1,5 +1,7 @@
 """LLM processor component using LangChain for Ollama integration."""
 
+import asyncio
+
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_ollama import OllamaLLM
 from loguru import logger
