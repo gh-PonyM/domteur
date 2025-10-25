@@ -12,8 +12,7 @@ Event-driven AI assistant with:
 ## Component Names
 - `repl`: CLI REPL for user input
 - `llm_processor`: Handles LLM requests/responses (uses LangChain/LangGraph)
-- `text_to_speech_engine`: TTS message sink
-- `event_dispatcher`: Central message routing
+- `tts`: TTS message sink
 - `persistence_manager`: SQLite database operations
 - `config_manager`: Settings and provider configuration
 
@@ -28,8 +27,8 @@ Event-driven AI assistant with:
                    │                             │                             │
                    v                             v                             v
         ┌─────────────────┐           ┌─────────────────┐           ┌─────────────────┐
-        │ llm_processor   │           │ text_to_speech_ │           │ persistence_    │
-        │ (LangChain)     │           │ engine          │           │ manager         │
+        │ llm_processor   │           │ tts             │           │ persistence_    │
+        │ (LangChain)     │           │                 │           │ manager         │
         └─────────────────┘           └─────────────────┘           └─────────────────┘
 ```
 
@@ -128,203 +127,155 @@ The `async for msg in client.messages` loops over the `MessagesIterator`
 - Muted state processes all messages but suppresses audio output
 - No pause/resume - only stop/clear/play based on priority
 
-### Message Priority System
+This is already implemented.
 
-**Priority Levels and Behavior:**
+## 🧭 Topic Naming Conventions
+
+### Recommended Topic Structure
+
 ```
-CRITICAL (0): System alerts, errors - immediate interruption
-HIGH (1): User commands, urgent responses - interrupt current playback
-NORMAL (2): Standard LLM responses - queue normally
-LOW (3): Background info, notifications - queue after higher priorities
+app/<app_name>/<component>/<instance>/<domain>/<event>
 ```
 
-**Message Payload Structure:**
+### Example Topics
+
+| Component | Direction | Topic Example | Description |
+|------------|------------|----------------|--------------|
+| `repl` | pub | `app/assistant/repl/001/output/user_message` | Publishes user input |
+| `llm_processor` | sub | `app/assistant/repl/+/output/user_message` | Consumes user input |
+| `llm_processor` | pub | `app/assistant/llm_processor/001/output/response` | Publishes LLM output |
+| `tts` | sub | `app/assistant/llm_processor/+/output/response` | Converts text to speech |
+| `persistence_manager` | sub | `app/assistant/+/+/output/#` | Logs all output events |
+| `config_manager` | pub/sub | `app/assistant/config/+/control/#` | Configuration updates |
+
+### Naming Principles
+- Use **lowercase** and **snake_case** only.
+- Maintain **consistent hierarchy**: `namespace → component → domain → event`.
+- Avoid embedding dynamic or sensitive data in topic names.
+
+## 💬 Message Structure
+
+All messages share a **common JSON envelope** for consistency and traceability.
+
+### Envelope Schema
+
 ```json
 {
-  "content": "text content",
-  "priority": 1,
-  "session_id": "uuid",
-  "timestamp": 1234567890.123,
-  "message_type": "stream_chunk|complete|control"
+  "event_type": "llm_response",
+  "timestamp": "2025-10-25T12:00:00Z",
+  "source": "llm_processor",
+  "correlation_id": "c8b12f47-3f45-4e7a-9b16-93cfd51c73b0",
+  "payload": {
+    "text": "Sure! Here's an example...",
+    "tokens_used": 342
+  }
 }
 ```
 
-**Priority Interrupt Logic:**
-- **Higher Priority Arrives**: Stop current playback + clear all queues + play new message
-- **Same Priority**: Queue in FIFO order
-- **Lower Priority**: Queue behind existing messages
-- **Muted State**: Process all priorities but suppress audio output
+### Envelope Fields
 
-### Architecture Components
+| Field            | Description                                   |
+| ---------------- | --------------------------------------------- |
+| `event_type`     | Logical name of the event                     |
+| `timestamp`      | ISO 8601 timestamp for event emission         |
+| `source`         | Component name that produced the event        |
+| `correlation_id` | Unique ID for tracing request–response chains |
+| `payload`        | Schema-specific message data                  |
 
-**1. PriorityMQTTQueue**: Custom message queue with priority ordering
-- Multi-priority queues with separate queues for each priority level
-- Dynamic message reordering and priority-based insertion
-- Operations: enqueue, dequeue, peek_next, clear_lower_priority, clear_all
+## 📦 Contract Definitions
 
-**2. StreamingTextBuffer**: Token accumulation with priority awareness
-- Handle streaming text tokens from LLM with sentence boundary detection
-- Priority-aware processing with interrupt capability
-- Fallback mechanisms: timeout trigger, buffer size limits, manual boundaries
+Define message contracts as **Pydantic** or **dataclass** models for validation and typing.
 
-**3. TTSMessageQueue**: Three-tier processing pipeline
-- Level 1: Raw token buffer (fast accumulation)
-- Level 2: Sentence queue (synthesis ready)
-- Level 3: Audio queue (playback ready)
+### Example Models
 
-**4. AudioPlaybackManager**: Thread-safe audio with interrupt capability
-- Hybrid async/sync architecture with ThreadPoolExecutor
-- Immediate stop capability using threading primitives
-- Priority-based playback control
-
-**5. PriorityInterruptHandler**: Manages stop/clear/play logic
-- State transitions on priority interruption
-- Queue clearing strategy across all processing levels
-- Session state reset and recovery
-
-### Control Signals
-
-**Core Signals:**
-- `STOP`: Immediate halt and queue clearing
-- `MUTE`/`UNMUTE`: Toggle audio output while maintaining processing
-- `CLEAR_QUEUE`: Manual queue clearing
-- Priority-based automatic interruption
-
-**State Transitions on Interrupt:**
-```
-PLAYING + HIGH_PRIORITY → STOP + CLEAR + PLAY_NEW
-STREAMING + HIGH_PRIORITY → STOP + CLEAR + STREAM_NEW  
-SYNTHESIZING + HIGH_PRIORITY → STOP + CLEAR + SYNTHESIZE_NEW
-MUTED + ANY_PRIORITY → PROCESS_SILENTLY
-```
-
-### Streaming Text Challenges
-
-Supported Languages:
-
-- en
-- de
-- fr
-
-**Token Fragmentation Issues:**
-- Tokens may split mid-word or mid-sentence
-- Punctuation might arrive separately from words
-- Incomplete sentences create poor synthesis quality
-- Buffer management for partial content
-
-**Sentence Boundary Detection:**
-- Multi-strategy approach: pattern-based, context-aware, timeout-based
-- Handle abbreviations, numbers, URLs across different languages
-- Fallback mechanisms for edge cases and incomplete streams
-
-**Queue Management Complexity:**
-- Memory management for large streaming queues
-- Priority handling with concurrent streams
-- Graceful degradation under load
-- Latency balance between responsiveness and quality
-
-### Implementation Priority
-
-1. **Custom MQTT priority queue system**
-2. **Priority-based interrupt handling**
-3. **Streaming token processing with priority awareness**
-4. **Multi-level queue management**
-5. **State management and muted mode**
-6. **Robust error handling and recovery**
-
-For point 1, evaluate if a custom priority queue should be used according to the docs, here is an example:
 ```python
-import asyncio
-import aiomqtt
+class Envelope(BaseModel):
+    event_type: str
+    timestamp: datetime
+    source: str
+    correlation_id: str
+    payload: BaseModel
 
+class Conversation(BaseModel):
+    user_id: str
+    message: str
+    context: Optional[dict]
 
-class CustomPriorityQueue(asyncio.PriorityQueue):
-    def _put(self, item):
-        priority = 2
-        if item.topic.matches("humidity/#"):  # Assign priority
-            priority = 1
-        super()._put((priority, item))
-
-    def _get(self):
-        return super()._get()[1]
-
-
-async def main():
-    async with aiomqtt.Client(
-        "test.mosquitto.org", queue_type=CustomPriorityQueue
-    ) as client:
-        await client.subscribe("temperature/#")
-        await client.subscribe("humidity/#")
-        async for message in client.messages:
-            print(message.payload)
-
-
-asyncio.run(main())
+class LLMResponse(BaseModel):
+    text: str
+    tokens_used: int
 ```
 
-### Key Behaviors
+## ⚙️ Event Routing Design
 
-- Long text playback interrupted by higher priority messages
-- Complete queue clearing on priority interruption
-- Immediate processing of high-priority messages
-- Graceful handling of streaming session interruptions
-- Muted state maintains processing without audio output
+### Option A: Central Dispatcher
 
-## TTS Implementation Analysis & Guidance
+* Acts as an internal message bus or monitor.
+* Pros: Simplified debugging and tracing.
+* Cons: Creates coupling if it must know all topics.
 
-### Findings
-- Incomplete PiperTTS: voice loading exists; no streaming/playback wiring.
-- AudioPlaybackManager is async, writes via executor (good). Synthesis remains blocking.
-- No shutdown propagation into component/audio manager.
-- Control topic exists (TTSControl) but not implemented.
-- audio.py is empty; suitable for streaming buffer utilities if needed.
+### Option B: Direct Pub/Sub (Recommended)
 
-### Recommendation
-- Use hybrid model: async orchestration; blocking I/O (piper synth, sounddevice writes) via executors/threads.
-- Keep AudioPlaybackManager async; wrap Piper synth in an async generator using a worker thread.
-- Pass shutdown_event through the component to playback manager; stop cleanly on shutdown/STOP.
-- Implement control handling (STOP, MUTE, UNMUTE, CLEAR_QUEUE).
-- Optionally prioritize control via aiomqtt queue_type.
+* Each component subscribes directly to relevant topics.
+* Fully decoupled and scalable.
+* Dispatcher remains **optional** (for logging or dynamic routing).
 
-### Planned Changes
-- Pass shutdown_event into component instance and manager.
-- Add async text→audio chunk generator (background thread around PiperVoice.synthesize).
-- Wire PiperTTS to AudioPlaybackManager.request_play_stream(...) with priorities.
-- Implement control handler for STOP/MUTE/UNMUTE/CLEAR_QUEUE.
-- Add streaming handler for TTSStreamChunk with sentence buffering and priority-aware interruption.
-- Optional: CustomPriorityQueue for MQTT to boost control priority.
+## 📈 Observability and Control Topics
 
-### Key Code Sketches
-- Pass shutdown to components
-  - domteur/components/base.py: extend MQTTClient.__init__(..., shutdown_event: asyncio.Event | None = None) and store self.shutdown_event.
-  - domteur/components/base.start_cli_client(...): construct instance = mqtt_client(client, shutdown_event=shutdown_event, ...).
-  - In PiperTTS, spawn a watcher: asyncio.create_task(self._watch_shutdown()) that awaits shutdown_event and calls await self._audio.stop().
+| Purpose             | Topic Example                                     | Payload Example                         |
+| ------------------- | ------------------------------------------------- | --------------------------------------- |
+| **Heartbeat**       | `app/assistant/<component>/<id>/status/heartbeat` | `{ "alive": true, "timestamp": "..." }` |
+| **Error Reporting** | `app/assistant/<component>/<id>/status/error`     | `{ "message": "..." }`                  |
+| **Config Reload**   | `app/assistant/config/<component>/control/reload` | `{ "action": "reload" }`                |
 
-- Async synthesis to chunks
-  - Ensure voice loads once.
-  - Implement:
-    - def _iter_chunks_sync(self, text: str, cancel_evt: threading.Event): yield from self.voice.synthesize(text) while not cancel_evt.is_set().
-    - async def _chunks_from_text(self, text: str, cancel_evt) -> AsyncIterator[np.ndarray]: run sync iterator in a thread, enqueue to an asyncio.Queue, and async-yield; stop on cancel/completion.
+## 🧠 Example Full Flow
 
-- Wire playback
-  - In handle_tts_request: build async chunk iterator via _chunks_from_text(), then:
-    - accepted = await self._audio.request_play_stream(self.voice.config.sample_rate, chunks, priority=PRIORITY_NORMAL)
-    - If not accepted (lower priority), drop.
+1. **User Input**
 
-- Control handling
-  - @on_receive(TOPIC_PIPER_TTS_CONTROL, TTSControl)
-    - STOP or CLEAR_QUEUE: await self._audio.stop().
-    - MUTE: await self._audio.set_muted(True).
-    - UNMUTE: await self._audio.set_muted(False).
+   ```
+   Topic: app/assistant/repl/001/output/user_message
+   Payload: { "event_type": "user_message", "payload": { "message": "What's the weather?" } }
+   ```
 
-- Streaming tokens (optional in first pass)
-  - Add TTSStreamChunk handler with sentence buffering and priority-aware interruption.
+2. **LLM Processing**
 
-### Async vs Sync Analysis
-- Full sync player in a background thread conflicts with "All functions must be async" and complicates cancellation/priority propagation.
-- The hybrid approach keeps async orchestration, contains blocking synthesis and device writes in threads, and integrates clean shutdown/interrupts. Recommended.
+   ```
+   Topic: app/assistant/llm_processor/001/output/response
+   Payload: { "event_type": "llm_response", "payload": { "text": "It’s 20°C and sunny." } }
+   ```
 
-### Edge Cases
-- Muted: still drain chunk iterators but don't open the audio stream.
-- Interrupts: propagate cancel to synthesis thread via event; ignore remaining chunks.
-- Error handling: keep logging around stream open/write and synthesis, revert to IDLE/MUTED states on errors.
+3. **Text-to-Speech**
+
+   ```
+   Topic: app/assistant/tts/001/output/audio_chunk
+   Payload: { "event_type": "tts_stream_chunk", "payload": { "base64_audio": "..." } }
+   ```
+
+4. **Persistence Logging**
+
+   ```
+   Subscription: app/assistant/+/+/output/#
+   ```
+
+## ✅ Design Principles Summary
+
+| Principle                        | Description                                         |
+| -------------------------------- | --------------------------------------------------- |
+| **Structured topic hierarchy**   | Namespace → Component → Domain → Event              |
+| **Common envelope format**       | Metadata + typed payload                            |
+| **Request–response correlation** | Use consistent `correlation_id`                     |
+| **Component autonomy**           | Each service subscribes only to needed topics       |
+| **Built-in observability**       | Heartbeat and error topics                          |
+| **Versioning support**           | Prefix topic root with version (e.g., `v1/`)        |
+| **Scalability first**            | Stateless, async components communicating over MQTT |
+
+---
+
+## 🧩 Next Steps
+
+1. **Refactor topic names** across all components to follow the new pattern.
+2. **Implement envelope schema** and correlation IDs in all message contracts.
+3. **Adopt Pydantic-based validation** for all inbound/outbound messages.
+4. **Add observability topics** (heartbeat/error/config).
+5. **Document topic contracts** per component in `/docs/contracts.md`.
+6. **(Optional)** Add dynamic routing or filtering in `event_dispatcher` for orchestration.
