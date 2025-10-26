@@ -56,7 +56,7 @@ class LLMTerminalChat(MQTTClient):
                 )
             elif query.startswith("/interrupt"):
                 await self.send_tts_single_text(
-                    None, "You wanted me to stop", 1, priority=1
+                    None, "You wanted me to stop", priority=1
                 )
             elif query.startswith("/stop"):
                 logger.info("Send audio stop")
