@@ -40,3 +40,10 @@ tts:
 
 # Start the broker separately using docker compose up broker
 broker_host: "localhost"
+# Speach to Text Settings Whisper engine
+sst:
+  beam_size: 5
+  compute_type: int8
+  device: cpu
+  model_size: large-v3
+  word_timestamps: true

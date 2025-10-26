@@ -4,6 +4,7 @@ import typer
 
 from domteur.cli.base import sync_run_client
 from domteur.components.repl.terminal import LLMTerminalChat
+from domteur.components.stt.client import WhisperSTT
 from domteur.components.tts.piper import PiperTTS
 from domteur.config import Settings
 
@@ -25,8 +26,16 @@ def repl(ctx: typer.Context, broker_host: str | None = None):
 
 @chat_cli.command()
 def piper(ctx: typer.Context):
+    """Piper Text to Speach client"""
     cfg: Settings = ctx.meta["cfg"]
     sync_run_client(cfg, PiperTTS)
+
+
+@chat_cli.command()
+def whisper(ctx: typer.Context):
+    """Whisper speech to text client"""
+    cfg: Settings = ctx.meta["cfg"]
+    sync_run_client(cfg, WhisperSTT)
 
 
 @chat_cli.command()

@@ -73,7 +73,7 @@ def on_receive(
 
     def decorator(func: Callable):
         @wraps(func)
-        async def wrapper(self, msg) -> None:
+        async def wrapper(self, msg, *args, **kwargs) -> None:
             src_topic = str(msg.topic) if msg else None
             # Decode JSON payload
             try:
@@ -204,6 +204,7 @@ class MQTTClient:
 
     async def publish(self, topic: str, payload: MessagePayload | Error) -> None:
         """Publish an event to a topic."""
+        logger.debug(f"Publish to {topic}")
         await self.client.publish(topic, payload.model_dump_json())
 
     async def subscribe(self, topic: str) -> None:
@@ -242,7 +243,7 @@ class MQTTClient:
         error_content = self._format_error(error)
         if source_topic:
             error_content = f"[from {source_topic}] {error_content}"
-
+        logger.debug(f"Sending error message to topic {self.error_topic}")
         await self.publish(
             self.error_topic,
             Error(
@@ -301,6 +302,10 @@ class MQTTClient:
     def start_coros(self):
         """yield all coroutines of this component that should be spawned in a task group"""
         yield self.start()
+
+    async def pre_start(self):
+        """Function to call before entering the main loops, like init stuff like model downloads etc."""
+        pass
 
 
 def get_registry_items():

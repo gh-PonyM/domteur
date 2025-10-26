@@ -2,12 +2,13 @@ from loguru import logger
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
 
-from domteur.components.base import MQTTClient, on_publish, on_receive
+from domteur.components.base import Error, MQTTClient, on_publish, on_receive
 from domteur.components.llm_processor.contracts import (
     Conversation,
     HistoryEntry,
     LLMResponse,
 )
+from domteur.components.stt.contracts import AudioFileTranscribeRequest, STTextSegment
 from domteur.components.tts.contracts import TTSControl, TTSStreamChunk
 from domteur.config import Settings
 
@@ -42,6 +43,18 @@ class LLMTerminalChat(MQTTClient):
         with patch_stdout():
             print(f"\n🤖 Assistant: {response.content}\n")
 
+    @on_publish("audio_transcribe", AudioFileTranscribeRequest, event="request")
+    async def terminal_stt_request_fp(self, msg, file_path: str):
+        return AudioFileTranscribeRequest(file_path=file_path)
+
+    @on_receive("WhisperSTT", "audio_transcribe", STTextSegment, "batch_output")
+    async def show_transcription(self, msg, segment: STTextSegment):
+        print(f"Transcription received: {segment.content}")
+
+    @on_receive("+", "error", Error)
+    async def show_errors(self, msg, err: Error):
+        print(err.content)
+
     async def ask_questions(self):
         session = PromptSession()
         while True:
@@ -50,7 +63,10 @@ class LLMTerminalChat(MQTTClient):
                 query = query.strip()
             if not query:
                 continue
-            if query.startswith("/speak"):
+            if query.startswith("/transcribe"):
+                fp = query.replace("/transcribe", "").strip()
+                await self.terminal_stt_request_fp(None, fp)
+            elif query.startswith("/speak"):
                 await self.send_tts_single_text(
                     None, query.replace("/speak", "", 1), priority=2
                 )

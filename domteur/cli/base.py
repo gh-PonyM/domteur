@@ -32,6 +32,7 @@ def sync_run_client(
                     queue_type=queue_type,
                 ) as client:
                     instance = mqtt_client_class(client, settings=cfg, **client_kwargs)
+                    await instance.pre_start()
                     async with asyncio.TaskGroup() as tg:
                         for coro in instance.start_coros():
                             tg.create_task(coro, name=coro.__name__)

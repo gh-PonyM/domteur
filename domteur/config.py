@@ -15,6 +15,7 @@ from pydantic.functional_validators import AfterValidator
 from pydantic_settings import BaseSettings as DefaultBaseSettings, SettingsConfigDict
 
 from domteur import __version__
+from domteur.components.stt.client import WhisperSTTConfig
 from domteur.components.tts.piper import PiperTTSConfig
 from domteur.validators import string_or_path
 
@@ -23,11 +24,6 @@ ENV_CONFIG_KEY = "DOMTEUR_CONFIG_DIR"
 CONFIG_FN = "config.yml"
 APP_DIR = Path(typer.get_app_dir(APP_NAME))
 APP_CFG = APP_DIR / CONFIG_FN
-
-
-class ExampleClient:
-    def __init__(self, secret):
-        self.secret = secret
 
 
 class BaseSettings(DefaultBaseSettings):
@@ -103,6 +99,9 @@ class Settings(BaseSettings):
 
     # TTS configuration
     tts: PiperTTSConfig = Field(default_factory=PiperTTSConfig)
+
+    ## SST
+    sst: WhisperSTTConfig = Field(default_factory=WhisperSTTConfig)
 
     # not serialized
     file_path: StrOrPath | None = Field(
