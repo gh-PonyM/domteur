@@ -1,4 +1,3 @@
-
 from loguru import logger
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
@@ -65,6 +64,9 @@ class LLMTerminalChat(MQTTClient):
             elif query.startswith("/mute"):
                 logger.info("Send audio mute")
                 await self.send_tts_control(None, action="MUTE")
+            elif query.startswith("/unmute"):
+                logger.info("Send audio unmute")
+                await self.send_tts_control(None, action="UNMUTE")
             else:
                 logger.info("Send to llm")
                 await self.send_to_llm(None, query)
