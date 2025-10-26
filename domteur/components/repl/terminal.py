@@ -53,7 +53,7 @@ class LLMTerminalChat(MQTTClient):
 
     @on_receive("+", "error", Error)
     async def show_errors(self, msg, err: Error):
-        print(err.content)
+        print(err.to_json())
 
     async def ask_questions(self):
         session = PromptSession()

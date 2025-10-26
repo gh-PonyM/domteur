@@ -52,9 +52,11 @@ def add_component_instance(topic: str, instance_id: str):
     return topic.replace("+", instance_id, 1)
 
 
-def to_topic(component: str, domain: str, event: str | None = None):
+def to_topic(
+    component: str, domain: str, event: str | None = None, instance: str = "+"
+):
     """Naming scheme: app/<app_name>/<component>/<instance>/<domain>/<event>"""
-    topic = f"{APP_TOPIC_ROOT}/{component}/+/{domain}"
+    topic = f"{APP_TOPIC_ROOT}/{component}/{instance}/{domain}"
     if event:
         topic = f"{topic}/{event}"
     return topic
@@ -176,7 +178,7 @@ class MessagePayload(BaseModel):
 
     def to_json(self) -> str:
         """Serialize event to JSON for pub/sub compatibility."""
-        return self.model_dump_json()
+        return self.model_dump_json(indent=2)
 
     @classmethod
     def from_json(cls, json_str: str) -> "MessagePayload":
@@ -220,17 +222,9 @@ class MQTTClient:
         return class_name_to_id(self.__class__.__name__)
 
     @property
-    def _component_topic(self):
-        return f"component/{self.component_name}"
-
-    @property
-    def instance_topic(self):
-        return f"{self._component_topic}/{self.name}"
-
-    @property
     def error_topic(self):
         """The default topic for each component to send a standardized error message in the domain error"""
-        return f"{self.instance_topic}/error"
+        return to_topic(self.component_name, domain="error", instance=self.name)
 
     @staticmethod
     def _format_error(err: Any) -> str:
