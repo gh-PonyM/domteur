@@ -29,7 +29,7 @@ class LLMTerminalChat(MQTTClient):
         return TTSStreamChunk(content=query, message_type="complete", priority=priority)
 
     @on_publish("tts_control", TTSControl)
-    def send_tts_control(self, msg, action):
+    async def send_tts_control(self, msg, action):
         return TTSControl(action=action)
 
     @on_receive("LLMProcessor", "output", LLMResponse, "complete")
