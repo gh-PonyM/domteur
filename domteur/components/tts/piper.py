@@ -190,7 +190,7 @@ class AudioPlaybackManager:
 
     async def stop(self):
         """Stop the player gracefully."""
-        logger.info("Audio player pause (leave the queue)...")
+        logger.info("Audio player stop...")
         self.running = False
         if self._task:
             self._task.cancel()
@@ -210,6 +210,7 @@ class AudioPlaybackManager:
                 logger.warning("-----------------Playing audio...")
                 await asyncio.to_thread(self._synthesize_and_stream_to_sd, text)
                 self._queue.task_done()
+                logger.warning("------------------Finished playing")
 
         except asyncio.CancelledError:
             logger.info("CancelledError captured in _play_loop")
