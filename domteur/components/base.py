@@ -6,7 +6,7 @@ import random
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -142,6 +142,7 @@ def on_publish(
             try:
                 response = await func(self, msg, *args, **kwargs)
             except Exception as err:
+                logger.exception("Captured in decorator")
                 await self._send_error_response(
                     session_id="unknown",
                     error=err,
@@ -170,7 +171,7 @@ def on_publish(
 class MessagePayload(BaseModel):
     """Base type for payloads that all the payload contracts must adhere to"""
 
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     session_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_json(self) -> str:
