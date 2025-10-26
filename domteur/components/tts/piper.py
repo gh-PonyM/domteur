@@ -301,10 +301,8 @@ class PiperTTS(MQTTClient):
         client,
         settings: Settings,
         name: str | None = None,
-        shutdown_event: asyncio.Event | None = None,
     ):
-        super().__init__(client, name, shutdown_event=shutdown_event)
-        self.config = settings.tts
+        super().__init__(client, settings, name)
         self.voice: PiperVoice | None = None
         self._audio = AudioPlaybackManager()
         self._shutdown_watcher: asyncio.Task | None = None
@@ -314,6 +312,10 @@ class PiperTTS(MQTTClient):
     @staticmethod
     def _prepare_text(text):
         return text
+
+    @property
+    def config(self):
+        return self.settings.tts
 
     @on_receive("LLMTerminalChat", "tts_control", TTSControl)
     async def handle_control_event(self, msg, event: TTSControl):

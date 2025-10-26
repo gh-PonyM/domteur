@@ -1,4 +1,3 @@
-import asyncio
 
 from loguru import logger
 from prompt_toolkit import PromptSession
@@ -20,12 +19,10 @@ class LLMTerminalChat(MQTTClient):
         client,
         settings: Settings,
         name: str | None = None,
-        shutdown_event: asyncio.Event | None = None,
     ):
-        super().__init__(client, name, shutdown_event=shutdown_event)
+        super().__init__(client, settings, name)
         self.conversation_history: list[HistoryEntry] = []
         self.session_id = None
-        self.settings = settings
 
     @on_publish("output", TTSStreamChunk, event="play")
     async def send_tts_single_text(self, msg, query, priority: int = 2):
@@ -82,8 +79,6 @@ class LLMTerminalChat(MQTTClient):
             c.session_id = self.session_id
         return c
 
-    async def start(self):
-        await self.initialize_subscriptions()
-        async with asyncio.TaskGroup() as tg:
-            tg.create_task(self.ask_questions())
-            tg.create_task(self.listen())
+    def start_coros(self):
+        yield self.start()
+        yield self.ask_questions()

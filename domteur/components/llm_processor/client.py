@@ -1,7 +1,5 @@
 """LLM processor component using LangChain for Ollama integration."""
 
-import asyncio
-
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_ollama import OllamaLLM
 from loguru import logger
@@ -24,10 +22,8 @@ class LLMProcessor(MQTTClient):
         client,
         settings: Settings,
         name: str | None = None,
-        shutdown_event: asyncio.Event | None = None,
     ):
-        super().__init__(client, name, shutdown_event=shutdown_event)
-        self.settings = settings
+        super().__init__(client, settings, name)
         self.llm_providers = {}
         self.current_provider: BaseLLMProvider | None = None
         self._initialize_providers()
