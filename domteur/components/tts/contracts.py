@@ -4,7 +4,7 @@ from domteur.components.base import MessagePayload
 
 
 class TTSControl(MessagePayload):
-    action: Literal["STOP", "MUTE", "UNMUTE", "CLEAR_QUEUE"]
+    action: Literal["STOP", "MUTE", "UNMUTE", "CLEAR_QUEUE", "PAUSE"]
 
 
 class TTSStreamChunk(MessagePayload):

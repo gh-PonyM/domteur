@@ -61,6 +61,9 @@ class LLMTerminalChat(MQTTClient):
             elif query.startswith("/stop"):
                 logger.info("Send audio stop")
                 await self.send_tts_control(None, action="STOP")
+            elif query.startswith("/pause"):
+                logger.info("Send audio stop")
+                await self.send_tts_control(None, action="PAUSE")
             elif query.startswith("/mute"):
                 logger.info("Send audio mute")
                 await self.send_tts_control(None, action="MUTE")
