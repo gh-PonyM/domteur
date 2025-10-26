@@ -207,9 +207,8 @@ class AudioPlaybackManager:
         try:
             while self.running:
                 text = await self._queue.get()
-                logger.debug("Getting next text from queue...")
                 logger.warning("-----------------Playing audio...")
-                self._synthesize_and_stream_to_sd(text)
+                await asyncio.to_thread(self._synthesize_and_stream_to_sd, text)
                 self._queue.task_done()
 
         except asyncio.CancelledError:
