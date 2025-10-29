@@ -65,7 +65,7 @@ def to_topic(
 def on_receive(
     component: str,
     domain: str,
-    payload_contract: type["MessagePayload"],
+    contract: type["MessagePayload"],
     event: str | None = None,
 ):
     """Decorator for registering message receive handlers with automatic validation."""
@@ -90,7 +90,7 @@ def on_receive(
 
             # Validate against contract
             try:
-                data = payload_contract.model_validate(data)
+                data = contract.model_validate(data)
             except pydantic.ValidationError as err:
                 await self._send_error_response(
                     session_id=data.get("session_id", "unknown"),
@@ -109,7 +109,7 @@ def on_receive(
         __contract_registry.items.append(
             ContractMap(
                 topic=topic,
-                contract=payload_contract,
+                contract=contract,
                 component=func.__qualname__.split(".")[0]
                 if "." in func.__qualname__
                 else "unknown",
@@ -125,7 +125,7 @@ def on_receive(
 
 def on_publish(
     domain: str,
-    payload_contract: type["MessagePayload"],
+    contract: type["MessagePayload"],
     event: str | None = None,
     component: str | None = None,
 ):
@@ -158,7 +158,7 @@ def on_publish(
         __contract_registry.items.append(
             ContractMap(
                 topic=topic,
-                contract=payload_contract,
+                contract=contract,
                 component=cls_name if "." in func.__qualname__ else "unknown",
                 method_name=func.__name__,
                 type="pub",
