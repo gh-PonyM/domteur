@@ -70,8 +70,9 @@ def ensure_config(ctx, option, cfg_file):
         path.write_text(cfg.dump())
     try:
         cfg = Settings.from_file(path)
-    except ValidationError:
-        raise
+    except ValidationError as err:
+        print(err)
+        raise typer.BadParameter(f"Your config '{path}' is from an older version")
 
     # Write the new version if cli was updated
     if cfg.version != __version__:
