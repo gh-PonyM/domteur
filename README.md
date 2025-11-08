@@ -82,18 +82,24 @@ Install the command line tool using git repo:
 
 ## Starting components
 
-Start the broker first:
+Start the main services (broker, llm adapter):
 
-    docker compose up broker
+    docker compose up
 
-### LLM
+### Ollama
 
-     uv run domteur --cfg-file config.example.yml llm start
+Run ollama in docker:
+    
+    # For AMD GPU's
+    docker compose run ollama-amd
+
+Pulling models:
+
+    doco exec ollama-amd ollama pull llama2
 
 ### Terminal
 
-    uv run domteur --cfg-file config.example.yml chat repl
-
+    docker compose run --rm repl
 
 ## Docker
 

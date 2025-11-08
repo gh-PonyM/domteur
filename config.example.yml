@@ -5,8 +5,8 @@ version: "0.1.0"
 llm_providers:
   # Local Ollama instance
   - type: "ollama"
-    base_url: "http://localhost:11434"
-    model: "llama2"
+    base_url: "http://ollama:11434"
+    model: llama2
     system_prompt: |
       You are a helpful AI Assistant. Keep conversations short if not otherwise told.
   
@@ -39,7 +39,7 @@ tts:
   chunk_size: 1024
 
 # Start the broker separately using docker compose up broker
-broker_host: "localhost"
+broker_host: "broker"
 # Speach to Text Settings Whisper engine
 sst:
   beam_size: 5

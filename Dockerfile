@@ -1,22 +1,21 @@
-ARG PYTHON_VERSION=3.12
-ARG IMAGE_FLAVOR=slim-bookworm
-FROM python:$PYTHON_VERSION-$IMAGE_FLAVOR AS python-base
+ARG BASE_IMAGE=python:3.12-slim
+ARG APP_USER=ubuntu
+FROM $BASE_IMAGE AS python-base
 ENV APP_HOME=/app \
   DOMTEUR_CONFIG_DIR=/app
 
 # System Dependencies
-RUN mkdir -p $APP_HOME \
-    && useradd -u 1000 -r dev --create-home \
-    # all project specific folders need to be accessible by newly created user but also for unknown users (when UID is set manually). Such users are in group root.
-    && chown -R dev:root /home/dev \
-    && chmod -R 770 /home/dev \
-    && apt-get update && apt-get upgrade -y \
-    && apt-get install --no-install-recommends -y \
-    git build-essential gcc portaudio19-dev \
-    && git config --system init.defaultBranch main \
-    # https://github.blog/2022-04-18-highlights-from-git-2-36/#stricter-repository-ownership-checks
-    && git config --global safe.directory '*' \
-    && rm -rf /var/lib/apt/lists/*
+# RUN useradd -u 1000 -r dev --create-home
+RUN if ! id -u 1000 >/dev/null 2>&1; then \
+      useradd -u 1000 -r dev --create-home; \
+    fi
+# all project specific folders need to be accessible by newly created user but also for unknown users (when UID is set manually). Such users are in group root
+RUN mkdir -p $APP_HOME && chown -R $APP_USER:root /home/$APP_USER && chmod -R 770 /home/$APP_USER
+RUN apt-get update && apt-get install --no-install-recommends -y build-essential gcc git portaudio19-dev
+RUN git config --system init.defaultBranch main
+# https://github.blog/2022-04-18-highlights-from-git-2-36/#stricter-repository-ownership-check
+RUN git config --global safe.directory '*'
+RUN rm -rf /var/lib/apt/lists/
 
 ENV PATH="/app/.venv/bin:$PATH"
 
@@ -33,7 +32,7 @@ ENV HOME=/home/dev \
 ENV UV_PYTHON_DOWNLOADS=0
 
 # important for project bootstrap in order to create the uv.lock file
-RUN pip install uv
+RUN pip install uv --break-system-packages
 
 FROM development-build AS development
 
@@ -55,4 +54,4 @@ FROM python-base AS production
 
 WORKDIR $APP_HOME
 COPY --from=development --chown=dev:dev $APP_HOME $APP_HOME
-USER dev
+USER $APP_USER

@@ -1,5 +1,3 @@
-import asyncio
-
 from loguru import logger
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout

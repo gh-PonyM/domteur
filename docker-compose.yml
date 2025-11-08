@@ -33,4 +33,66 @@ services:
     volumes:
       - ./config.example.yml:/app/config.yml:ro
       - ./domteur/:/app/domteur:ro
-    profiles: ["manual"]
+  repl:
+    <<: *base
+    command: domteur -vv chat repl
+    stdin_open: true   # equivalent to -it
+    tty: true          # equivalent to -it
+    profiles:
+      - manual
+
+  ollama-nvidia:
+    image: ollama/ollama
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+    profiles:
+      - nvidia
+
+  ollama-amd:
+    hostname: ollama
+    image: ollama/ollama:rocm
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    environment:
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_MAX_LOADED_MODELS=2
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+    profiles:
+      - amd
+
+  rocm-base:
+    image: domteur-rocm:dev
+    build:
+      context: .
+      target: development
+      args:
+        BASE_IMAGE: rocm/dev-ubuntu-24.04:7.1-complete
+    security_opt:
+      - seccomp=unconfined
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    profiles:
+      - testing
+
+volumes:
+  ollama:
