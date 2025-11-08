@@ -31,10 +31,9 @@ database:
 # Text-to-Speech Configuration
 tts:
   engine: "piper"
-  voice_model_name: en_US-bryce-medium
-#  voice_config_path: "en_US-lessac-medium.onnx.json"
+  voice_model_name: en_US-norman-medium
   volume: 1.0
-  speed: 1.0
+  speed: 1.5
   use_cuda: false
   auto_download_voice: true
   sample_rate: 22050
