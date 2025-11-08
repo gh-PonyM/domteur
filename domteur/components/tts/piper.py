@@ -28,7 +28,7 @@ class PiperTTSConfig(BaseModel):
 
     type: Literal["piper"] = "piper"
     # TODO: Make a list of the available voices
-    voice_model_name: str = "de_DE-kerstin-low"
+    voice_model_name: str = "en_US-norman-medium"
     volume: float = 1.0
     speed: float = 1.0
     use_cuda: bool = False
@@ -207,10 +207,10 @@ class AudioPlaybackManager:
         try:
             while self.running:
                 text = await self._queue.get()
-                logger.warning("-----------------Playing audio...")
+                logger.info("-----------------Playing audio...")
                 await asyncio.to_thread(self._synthesize_and_stream_to_sd, text)
                 self._queue.task_done()
-                logger.warning("------------------Finished playing")
+                logger.info("------------------Finished playing")
 
         except asyncio.CancelledError:
             logger.info("CancelledError captured in _play_loop")
