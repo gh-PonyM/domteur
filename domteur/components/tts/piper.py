@@ -35,7 +35,7 @@ class PiperTTSConfig(BaseModel):
     auto_download_voice: bool = True
     sample_rate: int = 22050
     chunk_size: int = 1024
-    model_storage_path: Path = Field(default_factory=lambda: Path("/tmp"))
+    model_storage_path: Path = Field(default_factory=lambda: Path("/tmp/piper_tts"))
 
     @property
     def voice_model_path(self) -> Path:
