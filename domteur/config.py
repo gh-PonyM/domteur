@@ -50,6 +50,8 @@ class OllamaProvider(BaseLLMProvider):
     type: Literal["ollama"]
     base_url: str = "http://localhost:11434"
     model: str = "llama2"
+    model_download: list[str] = Field(default_factory=list)
+    model_download_on_startup: bool = True
 
 
 class OpenRouterProvider(BaseModel):

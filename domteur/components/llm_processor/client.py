@@ -1,8 +1,10 @@
 """LLM processor component using LangChain for Ollama integration."""
 
+
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_ollama import OllamaLLM
 from loguru import logger
+from ollama import Client
 
 from domteur.components.base import MQTTClient, on_publish, on_receive
 from domteur.components.llm_processor.contracts import (
@@ -28,6 +30,15 @@ class LLMProcessor(MQTTClient):
         self.current_provider: BaseLLMProvider | None = None
         self._initialize_providers()
 
+    @staticmethod
+    def pull_ollama_models(ollama_config: OllamaProvider, ollama_client: Client):
+        if not ollama_config.model_download_on_startup:
+            return
+        for model in ollama_config.model_download:
+            logger.info(f"Pulling ollama model '{model}")
+            ollama_client.pull(model)
+            logger.info(f"Finished downloading '{model}")
+
     def _initialize_providers(self) -> None:
         """Initialize LLM providers from settings."""
         for provider_config in self.settings.llm_providers:
@@ -42,6 +53,8 @@ class LLMProcessor(MQTTClient):
                 if not self.current_provider:
                     self.current_provider = provider_config
                     logger.info(f"Set default LLM provider: {provider_config.model_id}")
+
+                self.pull_ollama_models(provider_config, llm._client)
 
                 # TODO: Add OpenRouter support later
                 # elif isinstance(provider_config, OpenRouterProvider):

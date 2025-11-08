@@ -9,6 +9,8 @@ llm_providers:
     model: llama2
     system_prompt: |
       You are a helpful AI Assistant. Keep conversations short if not otherwise told.
+    model_download:
+      - llama2
   
   # Alternative Ollama models
   # - type: "ollama"
