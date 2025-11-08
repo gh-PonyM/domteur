@@ -1,3 +1,5 @@
+import asyncio
+
 from loguru import logger
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
@@ -57,10 +59,14 @@ class LLMTerminalChat(MQTTClient):
 
     async def ask_questions(self):
         session = PromptSession()
-        while True:
-            with patch_stdout():
-                query = await session.prompt_async("💬 You: ")
-                query = query.strip()
+        is_running: bool = True
+        while is_running:
+            try:
+                with patch_stdout():
+                    query = await session.prompt_async("💬 You: ")
+                    query = query.strip()
+            except KeyboardInterrupt:
+                is_running = False
             if not query:
                 continue
             if query.startswith("/transcribe"):
