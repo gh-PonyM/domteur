@@ -4,13 +4,17 @@ version: "0.1.0"
 # LLM Provider Configuration
 llm_providers:
   # Local Ollama instance
-  - type: "ollama"
+  - name: &ollama-base ollama-default
+    type: "ollama"
     base_url: "http://ollama:11434"
     model: llama2
     system_prompt: |
       You are a helpful AI Assistant. Keep conversations short if not otherwise told.
-    model_download:
-      - llama2
+      You response it sent to a text-to-speech engine. Format your response so that the text can be properly read. 
+      Do not use bullet points. Use words such as "first", "second" instead of creating "1.", "2.". 
+      Your response should be like the text in a book.
+  - <<: *ollama-base
+    model: gpt-oss:20b
   
   # Alternative Ollama models
   # - type: "ollama"
@@ -33,7 +37,7 @@ tts:
   engine: "piper"
   voice_model_name: en_US-norman-medium
   volume: 1.0
-  speed: 1.5
+  speed: 1.3
   use_cuda: false
   auto_download_voice: true
   sample_rate: 22050

@@ -6,15 +6,16 @@ import typer
 import yaml
 from pydantic import (
     BaseModel,
-    Discriminator,
     Field,
-    SecretStr,
-    Tag,
 )
 from pydantic.functional_validators import AfterValidator
 from pydantic_settings import BaseSettings as DefaultBaseSettings, SettingsConfigDict
 
 from domteur import __version__
+from domteur.components.llm_processor.config import (
+    LLMProvider,
+    OllamaProvider,
+)
 from domteur.components.stt.client import WhisperSTTConfig
 from domteur.components.tts.piper import PiperTTSConfig
 from domteur.validators import string_or_path
@@ -31,50 +32,6 @@ class BaseSettings(DefaultBaseSettings):
 
 
 StrOrPath = Annotated[Path, AfterValidator(string_or_path)]
-
-
-class BaseLLMProvider(BaseModel):
-    model: str
-    system_prompt: str = (
-        "You are a helpful AI assistant. Provide concise and helpful responses."
-    )
-
-    @property
-    def model_id(self):
-        return f"{self.type}:{self.model}"
-
-
-class OllamaProvider(BaseLLMProvider):
-    """Ollama LLM provider configuration."""
-
-    type: Literal["ollama"]
-    base_url: str = "http://localhost:11434"
-    model: str = "llama2"
-    model_download: list[str] = Field(default_factory=list)
-    model_download_on_startup: bool = True
-
-
-class OpenRouterProvider(BaseModel):
-    """OpenRouter LLM provider configuration."""
-
-    type: Literal["openrouter"]
-    api_key: SecretStr
-    model: str = "anthropic/claude-3-haiku"
-    base_url: str = "https://openrouter.ai/api/v1"
-
-
-def get_provider_type(v):
-    """Discriminator function for LLM provider types."""
-    if isinstance(v, dict):
-        return v.get("type")
-    return getattr(v, "type", None)
-
-
-LLMProvider = Annotated[
-    Annotated[OllamaProvider, Tag("ollama")]
-    | Annotated[OpenRouterProvider, Tag("openrouter")],
-    Discriminator(get_provider_type),
-]
 
 
 class DatabaseConfig(BaseModel):

@@ -1,19 +1,15 @@
 """LLM processor component using LangChain for Ollama integration."""
 
-
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_ollama import OllamaLLM
 from loguru import logger
-from ollama import Client
 
 from domteur.components.base import MQTTClient, on_publish, on_receive
+from domteur.components.llm_processor.config import BaseLLMProvider, MessagesT
 from domteur.components.llm_processor.contracts import (
     Conversation,
     LLMResponse,
 )
-from domteur.config import BaseLLMProvider, OllamaProvider, Settings
-
-MessagesT = list[AIMessage | HumanMessage | SystemMessage]
+from domteur.config import Settings
 
 
 class LLMProcessor(MQTTClient):
@@ -26,41 +22,16 @@ class LLMProcessor(MQTTClient):
         name: str | None = None,
     ):
         super().__init__(client, settings, name)
-        self.llm_providers = {}
+        self.llm_providers: dict[str, BaseLLMProvider] = {}
         self.current_provider: BaseLLMProvider | None = None
         self._initialize_providers()
 
-    @staticmethod
-    def pull_ollama_models(ollama_config: OllamaProvider, ollama_client: Client):
-        if not ollama_config.model_download_on_startup:
-            return
-        for model in ollama_config.model_download:
-            logger.info(f"Pulling ollama model '{model}")
-            ollama_client.pull(model)
-            logger.info(f"Finished downloading '{model}")
-
     def _initialize_providers(self) -> None:
         """Initialize LLM providers from settings."""
-        for provider_config in self.settings.llm_providers:
-            if isinstance(provider_config, OllamaProvider):
-                # Initialize Ollama provider
-                llm = OllamaLLM(
-                    model=provider_config.model, base_url=provider_config.base_url
-                )
-                self.llm_providers[provider_config.model_id] = llm
-
-                # Set first provider as current
-                if not self.current_provider:
-                    self.current_provider = provider_config
-                    logger.info(f"Set default LLM provider: {provider_config.model_id}")
-
-                self.pull_ollama_models(provider_config, llm._client)
-
-                # TODO: Add OpenRouter support later
-                # elif isinstance(provider_config, OpenRouterProvider):
-                #     # Initialize OpenRouter provider
-
-    # Auto-discovery methods will handle subscriptions and message routing
+        for ix, provider_config in enumerate(self.settings.llm_providers):
+            self.llm_providers[provider_config.model_id] = provider_config
+            if ix == 0:
+                self.current_provider = provider_config
 
     @on_receive("LLMTerminalChat", "llm_chat", Conversation)
     async def handle_user_input(self, msg, event: Conversation) -> None:
@@ -105,13 +76,15 @@ class LLMProcessor(MQTTClient):
         """Send a complete, non-streaming answer"""
         if not self.current_provider:
             return pre_response
-        llm = self.llm_providers[self.current_provider.model_id]
+        llm: BaseLLMProvider = self.llm_providers[self.current_provider.model_id]
         # Generate response using conversation context
         pre_response.content = await self._generate_response(llm, messages)
         # Create and publish LLM response event
         return pre_response
 
-    async def _generate_response(self, llm, messages: MessagesT) -> str:
+    async def _generate_response(
+        self, llm: BaseLLMProvider, messages: MessagesT
+    ) -> str:
         """Generate response using the LLM."""
         try:
             # Use LangChain's async interface that handles missing async methods
@@ -128,7 +101,7 @@ class LLMProcessor(MQTTClient):
         """Get list of available LLM models."""
         return list(self.llm_providers.keys())
 
-    def switch_provider(self, model_id: str) -> bool:
+    def switch_provider_profile(self, model_id: str) -> bool:
         """Switch to a different LLM provider/model."""
         if model_id in self.llm_providers:
             self.current_provider = self.llm_providers[model_id]
