@@ -40,6 +40,19 @@ services:
     tty: true          # equivalent to -it
     profiles:
       - manual
+  tts:
+    <<: *base
+    command: domteur -vv chat piper
+#    command: paplay /usr/share/sounds/alsa/Front_Center.wav
+    environment:
+      PULSE_SERVER: "unix:${XDG_RUNTIME_DIR}/pulse/native"
+    volumes:
+      - ./config.example.yml:/app/config.yml:ro
+      - ./domteur/:/app/domteur:ro
+      - ./sample.wav:/app/sample.wav
+      - piper_models:/tmp/piper_tts
+      - ${XDG_RUNTIME_DIR}/pulse/native:${XDG_RUNTIME_DIR}/pulse/native
+      - ~/.config/pulse/cookie:/root/.config/pulse/cookie
 
   ollama-nvidia:
     image: ollama/ollama
@@ -96,3 +109,4 @@ services:
 
 volumes:
   ollama:
+  piper_models:

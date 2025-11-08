@@ -11,7 +11,13 @@ RUN if ! id -u 1000 >/dev/null 2>&1; then \
     fi
 # all project specific folders need to be accessible by newly created user but also for unknown users (when UID is set manually). Such users are in group root
 RUN mkdir -p $APP_HOME && chown -R $APP_USER:root /home/$APP_USER && chmod -R 770 /home/$APP_USER
-RUN apt-get update && apt-get install --no-install-recommends -y build-essential gcc git portaudio19-dev
+RUN apt-get update && apt-get install --no-install-recommends -y \
+  build-essential \
+  gcc \
+  git \
+  portaudio19-dev \
+  alsa-utils \
+  pulseaudio
 RUN git config --system init.defaultBranch main
 # https://github.blog/2022-04-18-highlights-from-git-2-36/#stricter-repository-ownership-check
 RUN git config --global safe.directory '*'
