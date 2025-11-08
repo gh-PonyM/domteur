@@ -4,18 +4,21 @@ version: "0.1.0"
 # LLM Provider Configuration
 llm_providers:
   # Local Ollama instance
-  - name: &ollama-base ollama-default
+  - name: llama2
     type: "ollama"
-    base_url: "http://ollama:11434"
+    base_url: &ollama-local "http://ollama:11434"
     model: llama2
-    system_prompt: |
+    system_prompt: &prompt |
       You are a helpful AI Assistant. Keep conversations short if not otherwise told.
       You response it sent to a text-to-speech engine. Format your response so that the text can be properly read. 
       Do not use bullet points. Use words such as "first", "second" instead of creating "1.", "2.". 
       Your response should be like the text in a book.
-  - <<: *ollama-base
+  - name: gpt-oss
+    type: "ollama"
+    base_url: *ollama-local
     model: gpt-oss:20b
-  
+    system_prompt: *prompt
+
   # Alternative Ollama models
   # - type: "ollama"
   #   base_url: "http://localhost:11434" 
