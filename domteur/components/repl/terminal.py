@@ -90,6 +90,9 @@ class LLMTerminalChat(MQTTClient):
             elif query.startswith("/unmute"):
                 logger.info("Send audio unmute")
                 await self.send_tts_control(None, action="UNMUTE")
+            elif query.startswith("/clear"):
+                logger.info("Cleared conversiotion history")
+                self.conversation_history = []
             else:
                 logger.info("Send to llm")
                 await self.send_to_llm(None, query)
