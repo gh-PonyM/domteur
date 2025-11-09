@@ -16,7 +16,7 @@ from domteur.components.llm_processor.config import (
     LLMProvider,
     OllamaProvider,
 )
-from domteur.components.stt.client import WhisperSTTConfig
+from domteur.components.stt.configs import WhisperSTTConfig
 from domteur.components.tts.piper import PiperTTSConfig
 from domteur.validators import string_or_path
 

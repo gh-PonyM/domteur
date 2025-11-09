@@ -1,25 +1,17 @@
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from faster_whisper import BatchedInferencePipeline, WhisperModel
 from loguru import logger
-from pydantic import BaseModel
 
 from domteur.components.base import MessagePayload, MQTTClient, on_publish, on_receive
-from domteur.components.stt.contracts import AudioFileTranscribeRequest, STTextSegment
+from domteur.components.stt.contracts import (
+    AudioFileTranscribeRequest,
+    STTextSegment,
+)
 
 if TYPE_CHECKING:
     from domteur.config import Settings
-
-
-class WhisperSTTConfig(BaseModel):
-    model_size: str = "large-v3"
-    device: Literal["cuda", "cpu"] = "cpu"
-    compute_type: Literal["float16", "int8_float16", "int8"] = "int8"
-    beam_size: int = 5
-    word_timestamps: bool = False
-    # vad_filter: bool = False
-    # vad_parameters = dict(min_silence_duration_ms=500),
 
 
 class WhisperSTT(MQTTClient):
@@ -39,7 +31,7 @@ class WhisperSTT(MQTTClient):
         )
 
     @on_receive("+", "audio_transcribe", AudioFileTranscribeRequest, event="request")
-    async def transcribe(self, msg, event: AudioFileTranscribeRequest):
+    async def transcribe_file(self, msg, event: AudioFileTranscribeRequest):
         logger.info(
             f"Audio transcription request {event.file_path}, {event.session_id=}"
         )
