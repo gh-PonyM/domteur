@@ -49,9 +49,14 @@ tts:
 # Start the broker separately using docker compose up broker
 broker_host: "broker"
 # Speach to Text Settings Whisper engine
-sst:
+stt:
   beam_size: 5
   compute_type: int8
   device: cpu
-  model_size: large-v3
+  model_size: distil-small.en
   word_timestamps: true
+  # Chunks audio from the input after a certain time under the threshold
+  streaming:
+    split_after_silence_secs: 0.4
+    limiter_threshold: -40
+    block_size: 1024

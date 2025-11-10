@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     tts: PiperTTSConfig = Field(default_factory=PiperTTSConfig)
 
     ## SST
-    sst: WhisperSTTConfig = Field(default_factory=WhisperSTTConfig)
+    stt: WhisperSTTConfig = Field(default_factory=WhisperSTTConfig)
 
     # not serialized
     file_path: StrOrPath | None = Field(

@@ -27,22 +27,23 @@ ModelSizesT = Literal[
 ]
 
 
-class WhisperSTTConfig(BaseModel):
-    model_size: str = ModelSizesT
-    device: Literal["cuda", "cpu"] = "cpu"
-    compute_type: Literal["float16", "int8_float16", "int8"] = "int8"
-    beam_size: int = 5
-    word_timestamps: bool = False
-    model_path: Path = Field(
-        Path("/tmp/whisper_stt"), description="Download path for whisper models"
-    )
-    # vad_filter: bool = False
-    # vad_parameters = dict(min_silence_duration_ms=500),
-
-
 class AudioStreamConfig(BaseModel):
     split_after_silence_secs: float = 0.5
     limiter_threshold: NegativeFloat = -40.0
     sample_rate: int = 16000
     channels: int = 2
     block_size: int = 1024
+
+
+class WhisperSTTConfig(BaseModel):
+    model_size: str = ModelSizesT
+    device: Literal["cuda", "cpu", "auto"] = "auto"
+    compute_type: Literal["float16", "int8_float16", "int8"] = "int8"
+    beam_size: int = 5
+    word_timestamps: bool = False
+    model_path: Path = Field(
+        Path("/tmp/whisper_stt"), description="Download path for whisper models"
+    )
+    streaming: AudioStreamConfig = Field(default_factory=AudioStreamConfig)
+    # vad_filter: bool = False
+    # vad_parameters = dict(min_silence_duration_ms=500),

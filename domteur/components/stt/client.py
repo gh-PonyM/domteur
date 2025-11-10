@@ -24,7 +24,7 @@ class WhisperSTT(MQTTClient):
         super().__init__(client, settings, name)
 
     async def pre_start(self):
-        cfg = self.settings.sst
+        cfg = self.settings.stt
         # Downloads the model, do on pre-start
         self._model = WhisperModel(
             cfg.model_size, device=cfg.device, compute_type=cfg.compute_type

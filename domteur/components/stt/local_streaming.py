@@ -1,5 +1,4 @@
 import asyncio
-import functools
 from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -8,9 +7,10 @@ from dataclasses import dataclass, field
 import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
+from faster_whisper.transcribe import Segment, TranscriptionInfo
 from loguru import logger
 
-from domteur.components.stt.configs import AudioStreamConfig, WhisperSTTConfig
+from domteur.components.stt.configs import WhisperSTTConfig
 
 
 def volume_bar(db, silence_threshold: float = -40.0):
@@ -83,10 +83,9 @@ class StreamingTranscriber:
     """
 
     model: WhisperModel
-    cfg: AudioStreamConfig
     whisper_config: WhisperSTTConfig = field(default_factory=WhisperSTTConfig)  # type: ignore
     dry_run: bool = False
-    show_audio_bar: bool = False
+    show_volume_bar: bool = False
 
     # Use deque for efficient buffering instead of np.concatenate
     _buffer_chunks: deque[np.ndarray] = field(default_factory=deque)
@@ -102,6 +101,10 @@ class StreamingTranscriber:
         if not self._buffer_chunks:
             return 0.0
         return sum(len(chunk) for chunk in self._buffer_chunks) / self.cfg.sample_rate
+
+    @property
+    def cfg(self):
+        return self.whisper_config.streaming
 
     def _get_buffer_size_mb(self) -> float:
         """Calculate current buffer size in MB."""
@@ -146,8 +149,8 @@ class StreamingTranscriber:
         else:
             mono_audio = indata.squeeze()
 
-        if self.show_audio_bar:
-            rms = np.sqrt(np.mean(indata ** 2))
+        if self.show_volume_bar:
+            rms = np.sqrt(np.mean(indata**2))
             db = 20 * np.log10(rms + 1e-10)
             volume_bar(db, self.cfg.limiter_threshold)
 
@@ -205,7 +208,7 @@ class StreamingTranscriber:
                     buffer_duration = self._get_buffer_duration()
                     buffer_size_mb = self._get_buffer_size_mb()
                     logger.info(
-                        f"Yielding audio chunk: {buffer_duration:.2f}s ({buffer_size_mb:.2f} MB), silence:{self._silence_duration:1f}"
+                        f"Yielding audio chunk: {buffer_duration:.2f}s ({buffer_size_mb:.2f} MB), silence:{self._silence_duration:.1f}"
                     )
                     audio_buffer = self._flush_buffer()
                     if audio_buffer is not None:
@@ -228,7 +231,18 @@ class StreamingTranscriber:
                         yield audio_buffer
                     self._silence_duration = 0.0
 
-    async def transcribe_stream(self) -> AsyncIterator[str]:
+    def transcribe(self, audio_chunk):
+        cond_on_prev = self.whisper_config.model_size != "distil-large-v3"
+        return self.model.transcribe(
+            audio_chunk,
+            beam_size=self.whisper_config.beam_size,
+            word_timestamps=False,
+            condition_on_previous_text=cond_on_prev,
+        )
+
+    async def transcribe_stream(
+        self,
+    ) -> AsyncIterator[tuple[TranscriptionInfo, Segment] | tuple[None, None]]:
         """Main async generator for transcribing live audio stream.
 
         Yields transcribed text segments as they become available.
@@ -238,22 +252,17 @@ class StreamingTranscriber:
             async for audio_chunk in self._process_audio_stream():
                 # Run transcription in thread pool to avoid blocking
                 if self.dry_run:
-                    yield "DRY-RUN: yield audio chunk"
+                    yield None
                     continue
 
                 loop = asyncio.get_event_loop()
                 segments, info = await loop.run_in_executor(
-                    None,
-                    lambda: self.model.transcribe(
-                        audio_chunk,
-                        beam_size=self.whisper_config.beam_size,
-                        word_timestamps=False,
-                    ),
+                    None, lambda: self.transcribe(audio_chunk)
                 )
 
                 # Yield transcribed text
                 for segment in segments:
-                    yield segment.text
+                    yield info, segment
 
         finally:
             self._is_running = False

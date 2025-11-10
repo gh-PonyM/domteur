@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from rich import print
 
 from domteur import __version__
+from domteur.cli.audio import audio_cli
 from domteur.cli.chat import chat_cli
 from domteur.cli.llm import llm_cli
 from domteur.config import APP_CFG, CONFIG_FN, ENV_CONFIG_KEY, Settings
@@ -18,7 +19,7 @@ cli = typer.Typer(pretty_exceptions_show_locals=False)
 # Register chat commands
 cli.add_typer(chat_cli, name="chat")
 cli.add_typer(llm_cli, name="llm")
-
+cli.add_typer(audio_cli, name="audio")
 
 log_levels = {0: "ERROR", 1: "WARNING", 2: "INFO", 3: "DEBUG"}
 
