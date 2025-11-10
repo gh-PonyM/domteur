@@ -62,7 +62,8 @@ class OllamaProvider(BaseLLMProvider):
         logger.info(f"Finished downloading '{model}")
 
     async def ainvoke(self, messages: MessagesT):
-        return self._instance.ainvoke(messages)
+        result = await self._instance.ainvoke(messages)
+        return result
 
 
 LLMProvider = Annotated[
